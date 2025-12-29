@@ -5,6 +5,8 @@ import '../models/platform_type.dart';
 import '../services/cloud_platform_factory.dart';
 import '../services/storage_service.dart';
 
+// ignore_for_file: library_private_types_in_public_api, use_build_context_synchronously
+
 class LoginDialog extends StatefulWidget {
   final PlatformType platform;
 
@@ -67,16 +69,22 @@ class _LoginDialogState extends State<LoginDialog> {
         final storage = Provider.of<StorageService>(context, listen: false);
         await storage.saveCredential(credential);
         await storage.saveLastPlatform(widget.platform);
-        Navigator.pop(context, true);
+        if (mounted) {
+          Navigator.pop(context, true);
+        }
       } else {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('登录失败: ${result.errorMessage}')));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('登录失败: ${result.errorMessage}')),
+          );
+        }
       }
     }
 
-    setState(() {
-      _isLoading = false;
-    });
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 }

@@ -4,8 +4,10 @@ import 'screens/main_screen.dart';
 import 'services/cloud_platform_factory.dart';
 import 'services/storage_service.dart';
 import 'services/api/http_client.dart';
+import 'utils/logger.dart';
 
 void main() {
+  log('Starting KyrieCloudHub app');
   runApp(const MyApp());
 }
 

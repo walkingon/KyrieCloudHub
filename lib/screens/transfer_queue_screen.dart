@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+// ignore_for_file: library_private_types_in_public_api
+
 class TransferQueueScreen extends StatefulWidget {
   const TransferQueueScreen({super.key});
 

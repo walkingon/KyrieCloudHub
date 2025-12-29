@@ -6,6 +6,8 @@ import '../models/platform_type.dart';
 import '../services/cloud_platform_factory.dart';
 import '../services/storage_service.dart';
 
+// ignore_for_file: library_private_types_in_public_api
+
 class BucketObjectsScreen extends StatefulWidget {
   final Bucket bucket;
   final PlatformType platform;
@@ -23,10 +25,14 @@ class BucketObjectsScreen extends StatefulWidget {
 class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   List<ObjectFile> _objects = [];
   bool _isLoading = true;
+  late final StorageService _storage;
+  late final CloudPlatformFactory _factory;
 
   @override
   void initState() {
     super.initState();
+    _storage = Provider.of<StorageService>(context, listen: false);
+    _factory = Provider.of<CloudPlatformFactory>(context, listen: false);
     _loadObjects();
   }
 
@@ -35,27 +41,29 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       _isLoading = true;
     });
 
-    final storage = Provider.of<StorageService>(context, listen: false);
-    final credential = await storage.getCredential(widget.platform);
+    final credential = await _storage.getCredential(widget.platform);
     if (credential != null) {
-      final factory = Provider.of<CloudPlatformFactory>(context, listen: false);
-      final api = factory.createApi(widget.platform, credential: credential);
+      final api = _factory.createApi(widget.platform, credential: credential);
       if (api != null) {
         final result = await api.listObjects(
           bucketName: widget.bucket.name,
           region: widget.bucket.region,
         );
         if (result.success) {
-          setState(() {
-            _objects = result.data?.objects ?? [];
-          });
+          if (mounted) {
+            setState(() {
+              _objects = result.data?.objects ?? [];
+            });
+          }
         }
       }
     }
 
-    setState(() {
-      _isLoading = false;
-    });
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   @override
@@ -147,16 +155,20 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
     if (confirmed == true) {
       // 实现删除逻辑
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('删除功能待实现')));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('删除功能待实现')));
+      }
     }
   }
 
   Future<void> _uploadFile() async {
     // 实现上传逻辑
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('上传功能待实现')));
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('上传功能待实现')));
+    }
   }
 }

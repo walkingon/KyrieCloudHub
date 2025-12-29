@@ -4,6 +4,8 @@ import '../models/platform_type.dart';
 import '../services/storage_service.dart';
 import 'login_dialog.dart';
 
+// ignore_for_file: library_private_types_in_public_api, use_build_context_synchronously
+
 class PlatformSelectionScreen extends StatefulWidget {
   const PlatformSelectionScreen({super.key});
 
@@ -68,11 +70,15 @@ class _PlatformSelectionScreenState extends State<PlatformSelectionScreen> {
                 );
                 if (result == true) {
                   _loadLoginStatus();
-                  Navigator.pop(context);
+                  if (mounted) {
+                    Navigator.pop(context);
+                  }
                 }
               } else {
                 // 直接登录
-                Navigator.pop(context);
+                if (mounted) {
+                  Navigator.pop(context);
+                }
               }
             },
           );
