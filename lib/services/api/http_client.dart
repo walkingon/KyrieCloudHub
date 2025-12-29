@@ -23,12 +23,14 @@ class HttpClient {
     String path, {
     Map<String, dynamic>? queryParameters,
     Map<String, dynamic>? headers,
+    void Function(int, int)? onReceiveProgress,
     CancelToken? cancelToken,
   }) async {
     return await _dio.get(
       path,
       queryParameters: queryParameters,
       options: Options(headers: headers),
+      onReceiveProgress: onReceiveProgress,
       cancelToken: cancelToken,
     );
   }
