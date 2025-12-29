@@ -10,6 +10,8 @@ import 'about_screen.dart';
 import 'bucket_objects_screen.dart';
 
 class MainScreen extends StatefulWidget {
+  const MainScreen({super.key});
+
   @override
   _MainScreenState createState() => _MainScreenState();
 }

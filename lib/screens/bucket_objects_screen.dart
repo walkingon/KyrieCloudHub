@@ -10,7 +10,11 @@ class BucketObjectsScreen extends StatefulWidget {
   final Bucket bucket;
   final PlatformType platform;
 
-  BucketObjectsScreen({required this.bucket, required this.platform});
+  const BucketObjectsScreen({
+    super.key,
+    required this.bucket,
+    required this.platform,
+  });
 
   @override
   _BucketObjectsScreenState createState() => _BucketObjectsScreenState();

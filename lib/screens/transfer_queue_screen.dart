@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 class TransferQueueScreen extends StatefulWidget {
+  const TransferQueueScreen({super.key});
+
   @override
   _TransferQueueScreenState createState() => _TransferQueueScreenState();
 }

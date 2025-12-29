@@ -5,6 +5,8 @@ import '../services/storage_service.dart';
 import 'login_dialog.dart';
 
 class PlatformSelectionScreen extends StatefulWidget {
+  const PlatformSelectionScreen({super.key});
+
   @override
   _PlatformSelectionScreenState createState() =>
       _PlatformSelectionScreenState();

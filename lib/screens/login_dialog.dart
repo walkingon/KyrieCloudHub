@@ -8,7 +8,7 @@ import '../services/storage_service.dart';
 class LoginDialog extends StatefulWidget {
   final PlatformType platform;
 
-  LoginDialog({required this.platform});
+  const LoginDialog({super.key, required this.platform});
 
   @override
   _LoginDialogState createState() => _LoginDialogState();
