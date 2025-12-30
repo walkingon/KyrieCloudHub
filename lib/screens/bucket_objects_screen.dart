@@ -1,5 +1,9 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:file_picker/file_picker.dart';
 import '../models/bucket.dart';
 import '../models/object_file.dart';
 import '../models/platform_type.dart';
@@ -178,10 +182,144 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
   Future<void> _uploadFile() async {
     logUi('User tapped upload button');
-    if (mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('上传功能待实现')));
+
+    // 弹出文件选择器
+    final result = await FilePicker.platform.pickFiles(
+      allowMultiple: false,
+    );
+
+    if (result == null || result.files.isEmpty) {
+      logUi('User cancelled file selection');
+      return;
     }
+
+    final pickedFile = result.files.first;
+    logUi('Selected file: ${pickedFile.name}, size: ${pickedFile.size} bytes');
+
+    if (!mounted) return;
+
+    // 读取文件内容
+    final fileBytes = await _readFileBytes(pickedFile);
+    if (fileBytes == null) {
+      logError('Failed to read file bytes');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('读取文件失败')),
+        );
+      }
+      return;
+    }
+
+    // 构建上传路径
+    final objectKey = pickedFile.name;
+
+    // 获取凭证并创建API
+    final credential = await _storage.getCredential(widget.platform);
+    if (credential == null) {
+      logError('No credential found for platform: ${widget.platform}');
+      return;
+    }
+
+    final api = _factory.createApi(widget.platform, credential: credential);
+    if (api == null) {
+      logError('Failed to create API for platform: ${widget.platform}');
+      return;
+    }
+
+    // 进度状态
+    int sent = 0;
+    int total = fileBytes.length;
+    double progress = 0.0;
+
+    // 显示上传进度对话框（不阻塞上传）
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Text('上传中'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('正在上传: ${pickedFile.name}', maxLines: 2),
+                  SizedBox(height: 16),
+                  SizedBox(
+                    width: 200,
+                    child: LinearProgressIndicator(
+                      value: progress,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text('${(progress * 100).toInt()}% (${_formatBytes(sent)} / ${_formatBytes(total)})'),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    // 执行上传（非阻塞）
+    logUi('Starting upload: $objectKey');
+    unawaited(api.uploadObject(
+      bucketName: widget.bucket.name,
+      region: widget.bucket.region,
+      objectKey: objectKey,
+      data: fileBytes,
+      onProgress: (s, t) {
+        if (!mounted) return;
+        setState(() {
+          sent = s;
+          total = t;
+          progress = t > 0 ? s / t : 0.0;
+        });
+      },
+    ).then((result) {
+      if (mounted) {
+        // 关闭进度对话框
+        Navigator.of(context).pop();
+
+        if (result.success) {
+          logUi('Upload successful: $objectKey');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('上传成功: ${pickedFile.name}')),
+          );
+          // 刷新文件列表
+          _loadObjects();
+        } else {
+          logError('Upload failed: ${result.errorMessage}');
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('上传失败: ${result.errorMessage}')),
+          );
+        }
+      }
+    }));
+  }
+
+  /// 读取文件字节
+  Future<Uint8List?> _readFileBytes(PlatformFile file) async {
+    try {
+      if (file.path != null) {
+        final fileEntity = File(file.path!);
+        return await fileEntity.readAsBytes();
+      }
+      return file.bytes;
+    } catch (e) {
+      logError('Failed to read file: $e');
+      return null;
+    }
+  }
+
+  /// 格式化字节大小
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
   }
 }
