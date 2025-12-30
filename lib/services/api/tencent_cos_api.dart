@@ -13,42 +13,85 @@ class TencentCosApi implements ICloudPlatformApi {
 
   TencentCosApi(this.credential, this.httpClient);
 
-  // 腾讯云签名算法实现
+  /// 生成腾讯云COS签名
+  ///
+  /// [method] HTTP方法
+  /// [path] 请求路径
+  /// [headers] 请求头
+  /// [secretId] 密钥ID
+  /// [secretKey] 密钥
   String _getSignature(
     String method,
     String path,
     Map<String, String> headers,
+    String secretId,
     String secretKey,
   ) {
-    // 简化版签名，实际需要更完整的实现
+    // 生成签名时间（当前时间戳，有效期1小时）
+    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final signTime = now.toString();
+    final keyTime = '$now;${now + 3600}';
+
+    // 1. 计算 SignKey = HMAC-SHA1(SecretKey, q-sign-time)
+    final signKey = _hmacSha1(secretKey, signTime);
+
+    // 2. 计算 CanonicalRequest 的 SHA1 哈希
     final canonicalRequest = _buildCanonicalRequest(method, path, headers);
-    final stringToSign = 'sha1\n$canonicalRequest';
-    final key = utf8.encode(secretKey);
-    final hmac = Hmac(sha1, key);
-    final signature = hmac.convert(utf8.encode(stringToSign));
-    return base64.encode(signature.bytes);
+    final sha1CanonicalRequest = sha1.convert(utf8.encode(canonicalRequest));
+
+    // 3. 拼接 StringToSign = "sha1\n{q-sign-time}\n{SHA1(CanonicalRequest)}\n"
+    final stringToSign = 'sha1\n$signTime\n${sha1CanonicalRequest.toString()}\n';
+
+    // 4. 计算 Signature = HMAC-SHA1(SignKey, StringToSign)
+    final signatureBytes = _hmacSha1Bytes(signKey, stringToSign);
+    return base64.encode(signatureBytes);
   }
 
+  /// HMAC-SHA1 计算，返回十六进制字符串
+  String _hmacSha1(String key, String data) {
+    final keyBytes = utf8.encode(key);
+    final dataBytes = utf8.encode(data);
+    final hmac = Hmac(sha1, keyBytes);
+    final digest = hmac.convert(dataBytes);
+    return digest.toString();
+  }
+
+  /// HMAC-SHA1 计算，返回字节数组
+  List<int> _hmacSha1Bytes(String key, String data) {
+    final keyBytes = utf8.encode(key);
+    final dataBytes = utf8.encode(data);
+    final hmac = Hmac(sha1, keyBytes);
+    final digest = hmac.convert(dataBytes);
+    return digest.bytes;
+  }
+
+  /// 构建规范请求 (CanonicalRequest)
   String _buildCanonicalRequest(
     String method,
     String path,
     Map<String, String> headers,
   ) {
-    // 构建规范请求
-    final sortedHeaders = headers.keys.toList()..sort();
-    final canonicalHeaders = sortedHeaders
-        .map((key) => '$key:${headers[key]}')
-        .join('\n');
-    return '$method\n$path\n\n$canonicalHeaders\n';
+    // 格式: Method\nPath\nQueryString\nCanonicalHeaders\n
+    return '$method\n$path\n\n\n';
   }
 
   @override
   Future<ApiResponse<List<Bucket>>> listBuckets() async {
     try {
       final url = 'https://cos.${credential.region}.myqcloud.com/';
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final keyTime = '$now;${now + 3600}';
+      final signature = _getSignature(
+        'GET',
+        '/',
+        {},
+        credential.secretId,
+        credential.secretKey,
+      );
+
       final headers = {
         'Authorization':
-            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=${DateTime.now().millisecondsSinceEpoch ~/ 1000}&q-key-time=${DateTime.now().millisecondsSinceEpoch ~/ 1000}&q-header-list=&q-url-param-list=&q-signature=${_getSignature('GET', '/', {}, credential.secretKey)}',
+            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$now&q-key-time=$keyTime&q-header-list=&q-url-param-list=&q-signature=$signature',
         'Content-Type': 'application/xml',
       };
 
@@ -90,9 +133,19 @@ class TencentCosApi implements ICloudPlatformApi {
     try {
       final url =
           'https://$bucketName.cos.$region.myqcloud.com/?prefix=$prefix&delimiter=$delimiter&max-keys=$maxKeys${marker != null ? '&marker=$marker' : ''}';
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final keyTime = '$now;${now + 3600}';
+      final signature = _getSignature(
+        'GET',
+        '/?prefix=$prefix&delimiter=$delimiter&max-keys=$maxKeys${marker != null ? '&marker=$marker' : ''}',
+        {},
+        credential.secretId,
+        credential.secretKey,
+      );
+
       final headers = {
         'Authorization':
-            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=${DateTime.now().millisecondsSinceEpoch ~/ 1000}&q-key-time=${DateTime.now().millisecondsSinceEpoch ~/ 1000}&q-header-list=&q-url-param-list=&q-signature=${_getSignature('GET', '/?prefix=$prefix&delimiter=$delimiter&max-keys=$maxKeys${marker != null ? '&marker=$marker' : ''}', {}, credential.secretKey)}',
+            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$now&q-key-time=$keyTime&q-header-list=&q-url-param-list=&q-signature=$signature',
       };
 
       final response = await httpClient.get(url, headers: headers);
@@ -130,9 +183,19 @@ class TencentCosApi implements ICloudPlatformApi {
   }) async {
     try {
       final url = 'https://$bucketName.cos.$region.myqcloud.com/$objectKey';
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final keyTime = '$now;${now + 3600}';
+      final signature = _getSignature(
+        'PUT',
+        '/$objectKey',
+        {},
+        credential.secretId,
+        credential.secretKey,
+      );
+
       final headers = {
         'Authorization':
-            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=${DateTime.now().millisecondsSinceEpoch ~/ 1000}&q-key-time=${DateTime.now().millisecondsSinceEpoch ~/ 1000}&q-header-list=&q-url-param-list=&q-signature=${_getSignature('PUT', '/$objectKey', {}, credential.secretKey)}',
+            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$now&q-key-time=$keyTime&q-header-list=&q-url-param-list=&q-signature=$signature',
         'Content-Type': 'application/octet-stream',
       };
 
@@ -167,9 +230,19 @@ class TencentCosApi implements ICloudPlatformApi {
   }) async {
     try {
       final url = 'https://$bucketName.cos.$region.myqcloud.com/$objectKey';
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final keyTime = '$now;${now + 3600}';
+      final signature = _getSignature(
+        'GET',
+        '/$objectKey',
+        {},
+        credential.secretId,
+        credential.secretKey,
+      );
+
       final headers = {
         'Authorization':
-            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=${DateTime.now().millisecondsSinceEpoch ~/ 1000}&q-key-time=${DateTime.now().millisecondsSinceEpoch ~/ 1000}&q-header-list=&q-url-param-list=&q-signature=${_getSignature('GET', '/$objectKey', {}, credential.secretKey)}',
+            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$now&q-key-time=$keyTime&q-header-list=&q-url-param-list=&q-signature=$signature',
       };
 
       final response = await httpClient.get(
@@ -201,9 +274,19 @@ class TencentCosApi implements ICloudPlatformApi {
   }) async {
     try {
       final url = 'https://$bucketName.cos.$region.myqcloud.com/$objectKey';
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final keyTime = '$now;${now + 3600}';
+      final signature = _getSignature(
+        'DELETE',
+        '/$objectKey',
+        {},
+        credential.secretId,
+        credential.secretKey,
+      );
+
       final headers = {
         'Authorization':
-            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=${DateTime.now().millisecondsSinceEpoch ~/ 1000}&q-key-time=${DateTime.now().millisecondsSinceEpoch ~/ 1000}&q-header-list=&q-url-param-list=&q-signature=${_getSignature('DELETE', '/$objectKey', {}, credential.secretKey)}',
+            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$now&q-key-time=$keyTime&q-header-list=&q-url-param-list=&q-signature=$signature',
       };
 
       final response = await httpClient.delete(url, headers: headers);
@@ -272,15 +355,21 @@ class TencentCosApi implements ICloudPlatformApi {
     final code = codeMatch?.group(1);
 
     // 提取 Message
-    final messageMatch = RegExp(r'<Message>([^<]+)</Message>').firstMatch(dataStr);
+    final messageMatch = RegExp(
+      r'<Message>([^<]+)</Message>',
+    ).firstMatch(dataStr);
     final message = messageMatch?.group(1);
 
     // 提取 Resource
-    final resourceMatch = RegExp(r'<Resource>([^<]+)</Resource>').firstMatch(dataStr);
+    final resourceMatch = RegExp(
+      r'<Resource>([^<]+)</Resource>',
+    ).firstMatch(dataStr);
     final resource = resourceMatch?.group(1);
 
     // 提取 RequestId
-    final requestIdMatch = RegExp(r'<RequestId>([^<]+)</RequestId>').firstMatch(dataStr);
+    final requestIdMatch = RegExp(
+      r'<RequestId>([^<]+)</RequestId>',
+    ).firstMatch(dataStr);
     final requestId = requestIdMatch?.group(1);
 
     // 构建错误描述

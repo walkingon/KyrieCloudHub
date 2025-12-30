@@ -58,7 +58,7 @@ class _LoginDialogState extends State<LoginDialog> {
       platformType: widget.platform,
       secretId: _secretIdController.text,
       secretKey: _secretKeyController.text,
-      region: 'ap-beijing', // 默认区域
+      region: 'ap-nanjing', // 默认区域
     );
 
     final factory = Provider.of<CloudPlatformFactory>(context, listen: false);
