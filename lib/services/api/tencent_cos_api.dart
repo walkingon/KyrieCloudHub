@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
+import 'package:dio/dio.dart';
 import '../../models/bucket.dart';
 import '../../models/object_file.dart';
 import '../../models/platform_credential.dart';
@@ -62,6 +63,9 @@ class TencentCosApi implements ICloudPlatformApi {
           statusCode: response.statusCode,
         );
       }
+    } on DioException catch (e) {
+      final errorDetail = _parseTencentCloudError(e);
+      return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
     } catch (e) {
       return ApiResponse.error(e.toString());
     }
@@ -101,6 +105,9 @@ class TencentCosApi implements ICloudPlatformApi {
           statusCode: response.statusCode,
         );
       }
+    } on DioException catch (e) {
+      final errorDetail = _parseTencentCloudError(e);
+      return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
     } catch (e) {
       return ApiResponse.error(e.toString());
     }
@@ -143,6 +150,9 @@ class TencentCosApi implements ICloudPlatformApi {
           statusCode: response.statusCode,
         );
       }
+    } on DioException catch (e) {
+      final errorDetail = _parseTencentCloudError(e);
+      return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
     } catch (e) {
       return ApiResponse.error(e.toString());
     }
@@ -175,6 +185,9 @@ class TencentCosApi implements ICloudPlatformApi {
           statusCode: response.statusCode,
         );
       }
+    } on DioException catch (e) {
+      final errorDetail = _parseTencentCloudError(e);
+      return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
     } catch (e) {
       return ApiResponse.error(e.toString());
     }
@@ -202,6 +215,9 @@ class TencentCosApi implements ICloudPlatformApi {
           statusCode: response.statusCode,
         );
       }
+    } on DioException catch (e) {
+      final errorDetail = _parseTencentCloudError(e);
+      return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
     } catch (e) {
       return ApiResponse.error(e.toString());
     }
@@ -225,5 +241,65 @@ class TencentCosApi implements ICloudPlatformApi {
       }
     }
     return ApiResponse.success(null);
+  }
+
+  /// 解析腾讯云API错误响应
+  /// 腾讯云COS错误响应格式（XML）:
+  /// <Error>
+  ///   <Code>AuthFailure</Code>
+  ///   <Message>签名失败...</Message>
+  ///   <Resource>cos.ap-beijing.myqcloud.com/</Resource>
+  ///   <RequestId>xxx</RequestId>
+  /// </Error>
+  String _parseTencentCloudError(DioException e) {
+    final response = e.response;
+    if (response == null) {
+      return e.message ?? 'Unknown error';
+    }
+
+    final statusCode = response.statusCode ?? 0;
+    final errorData = response.data;
+
+    if (errorData == null) {
+      return 'HTTP $statusCode error: ${e.message}';
+    }
+
+    // 尝试从XML中提取错误信息
+    final dataStr = errorData.toString();
+
+    // 提取 Code
+    final codeMatch = RegExp(r'<Code>([^<]+)</Code>').firstMatch(dataStr);
+    final code = codeMatch?.group(1);
+
+    // 提取 Message
+    final messageMatch = RegExp(r'<Message>([^<]+)</Message>').firstMatch(dataStr);
+    final message = messageMatch?.group(1);
+
+    // 提取 Resource
+    final resourceMatch = RegExp(r'<Resource>([^<]+)</Resource>').firstMatch(dataStr);
+    final resource = resourceMatch?.group(1);
+
+    // 提取 RequestId
+    final requestIdMatch = RegExp(r'<RequestId>([^<]+)</RequestId>').firstMatch(dataStr);
+    final requestId = requestIdMatch?.group(1);
+
+    // 构建错误描述
+    final buffer = StringBuffer();
+    buffer.write('腾讯云API错误 (HTTP $statusCode)');
+
+    if (code != null) {
+      buffer.write('\n  Code: $code');
+    }
+    if (message != null) {
+      buffer.write('\n  Message: $message');
+    }
+    if (resource != null) {
+      buffer.write('\n  Resource: $resource');
+    }
+    if (requestId != null) {
+      buffer.write('\n  RequestId: $requestId');
+    }
+
+    return buffer.toString();
   }
 }

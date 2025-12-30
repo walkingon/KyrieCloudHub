@@ -152,8 +152,18 @@ class HttpClient {
   }
 
   void _logError(String method, String path, DioException e) {
-    logger.log(
-      '[HTTP $method] Error: $path, type: ${e.type}, message: ${e.message}',
-    );
+    String errorInfo = '[HTTP $method] Error: $path, type: ${e.type}, message: ${e.message}';
+
+    // 打印状态码
+    if (e.response != null) {
+      errorInfo += ', status: ${e.response!.statusCode}';
+      // 打印原始响应数据（用于调试）
+      if (e.response!.data != null) {
+        final dataStr = e.response!.data.toString();
+        errorInfo += '\n  Response: ${dataStr.substring(0, dataStr.length < 500 ? dataStr.length : 500)}';
+      }
+    }
+
+    logger.log(errorInfo);
   }
 }
