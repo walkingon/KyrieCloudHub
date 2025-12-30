@@ -7,7 +7,6 @@ import 'package:file_picker/file_picker.dart';
 import '../models/bucket.dart';
 import '../models/object_file.dart';
 import '../models/platform_type.dart';
-import '../services/api/cloud_platform_api.dart';
 import '../services/cloud_platform_factory.dart';
 import '../services/storage_service.dart';
 import '../utils/logger.dart';
@@ -33,6 +32,12 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   bool _isLoading = true;
   late final StorageService _storage;
   late final CloudPlatformFactory _factory;
+
+  // 多选模式相关
+  bool _isSelectionMode = false;
+  final Set<String> _selectedObjects = {};
+  List<ObjectFile> get _selectedFileList =>
+      _objects.where((obj) => _selectedObjects.contains(obj.key)).toList();
 
   @override
   void initState() {
@@ -80,34 +85,147 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(widget.bucket.name)),
+      appBar: AppBar(
+        title: _isSelectionMode
+            ? Text('已选择 ${_selectedObjects.length} 项')
+            : Text(widget.bucket.name),
+        actions: _isSelectionMode ? _buildSelectionActions() : null,
+        leading: _isSelectionMode
+            ? IconButton(
+                icon: Icon(Icons.close),
+                onPressed: _exitSelectionMode,
+              )
+            : null,
+      ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
-          : ListView.builder(
-              itemCount: _objects.length,
-              itemBuilder: (context, index) {
-                final obj = _objects[index];
-                return ListTile(
-                  leading: Icon(
-                    obj.type == ObjectType.file
-                        ? Icons.insert_drive_file
-                        : Icons.folder,
-                  ),
-                  title: Text(obj.name),
-                  subtitle: Text(obj.lastModified?.toString() ?? ''),
-                  onTap: () {
-                    // 显示操作选项
-                    logUi('User tapped object: ${obj.name}');
-                    _showObjectActions(obj);
+          : Stack(
+              children: [
+                ListView.builder(
+                  itemCount: _objects.length,
+                  itemBuilder: (context, index) {
+                    final obj = _objects[index];
+                    final isSelected = _selectedObjects.contains(obj.key);
+                    // 文件夹不允许选择（暂不支持文件夹操作）
+                    final isFolder = obj.type != ObjectType.file;
+
+                    return ListTile(
+                      leading: Icon(
+                        isFolder ? Icons.folder : Icons.insert_drive_file,
+                      ),
+                      title: Text(obj.name),
+                      subtitle: Text(obj.lastModified?.toString() ?? ''),
+                      selected: isSelected,
+                      selectedTileColor: Colors.blue.withValues(alpha: 0.1),
+                      trailing: isFolder
+                          ? null
+                          : Checkbox(
+                              value: isSelected,
+                              onChanged: (value) => _toggleSelection(obj),
+                            ),
+                      onTap: () {
+                        if (_isSelectionMode) {
+                          _toggleSelection(obj);
+                        } else {
+                          logUi('User tapped object: ${obj.name}');
+                          _showObjectActions(obj);
+                        }
+                      },
+                      onLongPress: isFolder
+                          ? null
+                          : () {
+                              logUi('User long pressed object: ${obj.name}');
+                              _enterSelectionMode(obj);
+                            },
+                    );
                   },
-                );
-              },
+                ),
+              ],
             ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _uploadFile,
-        child: Icon(Icons.add),
-      ),
+      floatingActionButton: _isSelectionMode
+          ? null
+          : FloatingActionButton(
+              onPressed: _uploadFiles,
+              child: Icon(Icons.add),
+            ),
     );
+  }
+
+  List<Widget> _buildSelectionActions() {
+    return [
+      // 全选/取消全选
+      IconButton(
+        icon: Icon(_selectedObjects.length == _objects.where((o) => o.type == ObjectType.file).length
+            ? Icons.deselect
+            : Icons.select_all),
+        onPressed: _toggleSelectAll,
+        tooltip: '全选',
+      ),
+      // 批量下载
+      IconButton(
+        icon: Icon(Icons.download),
+        onPressed: _selectedObjects.isEmpty ? null : _batchDownload,
+        tooltip: '批量下载',
+      ),
+      // 批量删除
+      IconButton(
+        icon: Icon(Icons.delete),
+        onPressed: _selectedObjects.isEmpty ? null : _batchDelete,
+        tooltip: '批量删除',
+      ),
+    ];
+  }
+
+  void _enterSelectionMode(ObjectFile obj) {
+    setState(() {
+      _isSelectionMode = true;
+      _selectedObjects.add(obj.key);
+    });
+    logUi('Entered selection mode, selected: ${obj.name}');
+  }
+
+  void _exitSelectionMode() {
+    setState(() {
+      _isSelectionMode = false;
+      _selectedObjects.clear();
+    });
+    logUi('Exited selection mode');
+  }
+
+  void _toggleSelection(ObjectFile obj) {
+    setState(() {
+      if (_selectedObjects.contains(obj.key)) {
+        _selectedObjects.remove(obj.key);
+        if (_selectedObjects.isEmpty) {
+          _isSelectionMode = false;
+        }
+      } else {
+        _selectedObjects.add(obj.key);
+        // 如果不在选择模式，自动进入
+        if (!_isSelectionMode) {
+          _isSelectionMode = true;
+        }
+      }
+    });
+  }
+
+  void _toggleSelectAll() {
+    final fileObjects = _objects.where((o) => o.type == ObjectType.file).toList();
+    final allSelected = _selectedObjects.length == fileObjects.length;
+
+    setState(() {
+      if (allSelected) {
+        _selectedObjects.clear();
+        if (_selectedObjects.isEmpty) {
+          _isSelectionMode = false;
+        }
+      } else {
+        _selectedObjects.addAll(fileObjects.map((o) => o.key));
+        _isSelectionMode = true;
+      }
+    });
+
+    logUi('Select all: ${!allSelected}, selected: ${_selectedObjects.length} items');
   }
 
   void _showObjectActions(ObjectFile obj) {
@@ -346,12 +464,12 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     }
   }
 
-  Future<void> _uploadFile() async {
+  Future<void> _uploadFiles() async {
     logUi('User tapped upload button');
 
-    // 弹出文件选择器
+    // 弹出文件选择器，支持多选
     final result = await FilePicker.platform.pickFiles(
-      allowMultiple: false,
+      allowMultiple: true,
     );
 
     if (result == null || result.files.isEmpty) {
@@ -359,12 +477,8 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       return;
     }
 
-    final pickedFile = result.files.first;
-    logUi('Selected file: ${pickedFile.name}, size: ${pickedFile.size} bytes');
-
-    // 判断文件大小，选择上传方式
-    final fileSize = pickedFile.size;
-    const largeFileThreshold = 100 * 1024 * 1024; // 100MB
+    final files = result.files;
+    logUi('Selected ${files.length} files');
 
     if (!mounted) return;
 
@@ -381,17 +495,111 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       return;
     }
 
-    // 构建上传路径
-    final objectKey = pickedFile.name;
+    // 上传每个文件
+    int successCount = 0;
+    int failCount = 0;
 
-    // 进度状态
-    int sent = 0;
-    int total = fileSize;
-    double progress = 0.0;
-    // 捕获 StatefulBuilder 的 setState，用于更新对话框进度
-    void Function(VoidCallback fn)? dialogSetState;
+    for (final pickedFile in files) {
+      if (pickedFile.path == null) continue;
 
-    // 显示上传进度对话框（不阻塞上传）
+      final fileSize = pickedFile.size;
+      const largeFileThreshold = 100 * 1024 * 1024; // 100MB
+      final objectKey = pickedFile.name;
+
+      logUi('Uploading file: ${pickedFile.name}, size: ${pickedFile.size} bytes');
+
+      // 大文件使用分块上传，小文件使用简单上传
+      if (fileSize > largeFileThreshold) {
+        final result = await api.uploadObjectMultipart(
+          bucketName: widget.bucket.name,
+          region: widget.bucket.region,
+          objectKey: objectKey,
+          file: File(pickedFile.path!),
+          chunkSize: 64 * 1024 * 1024, // 64MB 分块
+          onProgress: (s, t) {},
+          onStatusChanged: (status) {},
+        );
+        if (result.success) {
+          successCount++;
+        } else {
+          failCount++;
+        }
+      } else {
+        final fileBytes = await _readFileBytes(pickedFile);
+        if (fileBytes == null) {
+          failCount++;
+          continue;
+        }
+        final result = await api.uploadObject(
+          bucketName: widget.bucket.name,
+          region: widget.bucket.region,
+          objectKey: objectKey,
+          data: fileBytes,
+          onProgress: (s, t) {},
+        );
+        if (result.success) {
+          successCount++;
+        } else {
+          failCount++;
+        }
+      }
+    }
+
+    // 显示结果
+    if (mounted) {
+      if (successCount > 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('成功上传 $successCount 个文件${failCount > 0 ? '，$failCount 个失败' : ''}')),
+        );
+      }
+      if (failCount > 0 && successCount == 0) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('上传失败：所有文件上传失败')),
+        );
+      }
+      // 刷新文件列表
+      _loadObjects();
+    }
+  }
+
+  /// 批量下载
+  Future<void> _batchDownload() async {
+    final selectedFiles = _selectedFileList;
+    if (selectedFiles.isEmpty) return;
+
+    logUi('Batch download: ${selectedFiles.length} files');
+
+    // 让用户选择保存目录
+    final directoryPath = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: '选择保存位置',
+    );
+
+    if (directoryPath == null || directoryPath.isEmpty) {
+      logUi('User cancelled directory selection');
+      return;
+    }
+
+    logUi('Selected directory: $directoryPath');
+
+    // 获取凭证并创建API
+    final credential = await _storage.getCredential(widget.platform);
+    if (credential == null) {
+      logError('No credential found for platform: ${widget.platform}');
+      return;
+    }
+
+    final api = _factory.createApi(widget.platform, credential: credential);
+    if (api == null) {
+      logError('Failed to create API for platform: ${widget.platform}');
+      return;
+    }
+
+    int successCount = 0;
+    int failCount = 0;
+
+    // 显示进度对话框
+    int currentIndex = 0;
+    String currentFile = '';
     if (!mounted) return;
     showDialog(
       context: context,
@@ -399,22 +607,21 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
-            dialogSetState = setState;
             return AlertDialog(
-              title: Text('上传中'),
+              title: Text('批量下载中'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text('正在上传: ${pickedFile.name}', maxLines: 2),
+                  Text('正在下载: $currentFile', maxLines: 2),
                   SizedBox(height: 16),
                   SizedBox(
                     width: 200,
                     child: LinearProgressIndicator(
-                      value: progress,
+                      value: currentIndex / selectedFiles.length,
                     ),
                   ),
                   SizedBox(height: 8),
-                  Text('${(progress * 100).toInt()}% (${_formatBytes(sent)} / ${_formatBytes(total)})'),
+                  Text('$currentIndex/${selectedFiles.length}'),
                 ],
               ),
             );
@@ -423,83 +630,124 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       },
     );
 
-    // 执行上传
-    logUi('Starting upload: $objectKey (${fileSize > largeFileThreshold ? '分块上传' : '简单上传'})');
+    // 逐个下载文件
+    for (final obj in selectedFiles) {
+      currentFile = obj.name;
+      currentIndex++;
 
-    if (fileSize > largeFileThreshold && pickedFile.path != null) {
-      // 大文件使用分块上传
-      unawaited(api.uploadObjectMultipart(
+      // 更新对话框进度
+      if (mounted) {
+        setState(() {});
+      }
+
+      logUi('Downloading: ${obj.name}');
+      final result = await api.downloadObject(
         bucketName: widget.bucket.name,
         region: widget.bucket.region,
-        objectKey: objectKey,
-        file: File(pickedFile.path!),
-        chunkSize: 64 * 1024 * 1024, // 64MB 分块
-        onProgress: (s, t) {
-          dialogSetState?.call(() {
-            sent = s;
-            total = t > 0 ? t : fileSize;
-            progress = total > 0 ? s / total : 0.0;
-          });
-        },
-        onStatusChanged: (status) {
-          log('[Upload] Status changed: $status');
-        },
-      ).then((result) {
-        if (mounted) {
-          _handleUploadResult(context, result, pickedFile.name);
-        }
-      }));
-    } else {
-      // 小文件使用简单上传，先读取到内存
-      unawaited(_readFileBytes(pickedFile).then((fileBytes) async {
-        if (fileBytes == null) {
-          if (mounted) {
-            Navigator.of(context).pop();
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('读取文件失败')),
-            );
-          }
-          return;
-        }
+        objectKey: obj.key,
+        onProgress: (r, t) {},
+      );
 
-        final result = await api.uploadObject(
-          bucketName: widget.bucket.name,
-          region: widget.bucket.region,
-          objectKey: objectKey,
-          data: fileBytes,
-          onProgress: (s, t) {
-            dialogSetState?.call(() {
-              sent = s;
-              total = t > 0 ? t : fileSize;
-              progress = total > 0 ? s / total : 0.0;
-            });
-          },
-        );
-
-        if (mounted) {
-          _handleUploadResult(context, result, pickedFile.name);
+      if (result.success && result.data != null) {
+        try {
+          final savePath = '$directoryPath/${obj.name}';
+          final file = File(savePath);
+          await file.writeAsBytes(result.data!);
+          successCount++;
+          logUi('Downloaded: ${obj.name} -> $savePath');
+        } catch (e) {
+          failCount++;
+          logError('Failed to save file: ${obj.name}, $e');
         }
-      }));
+      } else {
+        failCount++;
+        logError('Download failed: ${obj.name}, ${result.errorMessage}');
+      }
+    }
+
+    // 关闭进度对话框并显示结果
+    if (mounted) {
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('成功下载 $successCount 个文件${failCount > 0 ? '，$failCount 个失败' : ''}')),
+      );
+      // 退出选择模式
+      _exitSelectionMode();
     }
   }
 
-  /// 处理上传结果
-  void _handleUploadResult(BuildContext context, ApiResponse<void> result, String fileName) {
-    // 关闭进度对话框
-    Navigator.of(context).pop();
+  /// 批量删除
+  Future<void> _batchDelete() async {
+    final selectedFiles = _selectedFileList;
+    if (selectedFiles.isEmpty) return;
 
-    if (result.success) {
-      logUi('Upload successful: $fileName');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('上传成功: $fileName')),
+    logUi('Batch delete: ${selectedFiles.length} files');
+
+    final confirmed = await showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('确认删除'),
+        content: Text('确定要删除选中的 ${selectedFiles.length} 个文件吗？此操作不可恢复。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: Text('取消'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text('删除'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) {
+      logUi('User cancelled batch delete');
+      return;
+    }
+
+    // 获取凭证并创建API
+    final credential = await _storage.getCredential(widget.platform);
+    if (credential == null) {
+      logError('No credential found for platform: ${widget.platform}');
+      return;
+    }
+
+    final api = _factory.createApi(widget.platform, credential: credential);
+    if (api == null) {
+      logError('Failed to create API for platform: ${widget.platform}');
+      return;
+    }
+
+    int successCount = 0;
+    int failCount = 0;
+
+    // 逐个删除文件
+    for (final obj in selectedFiles) {
+      logUi('Deleting: ${obj.name}');
+      final result = await api.deleteObject(
+        bucketName: widget.bucket.name,
+        region: widget.bucket.region,
+        objectKey: obj.key,
       );
-      // 刷新文件列表
+
+      if (result.success) {
+        successCount++;
+        logUi('Deleted: ${obj.name}');
+      } else {
+        failCount++;
+        logError('Delete failed: ${obj.name}, ${result.errorMessage}');
+      }
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('成功删除 $successCount 个文件${failCount > 0 ? '，$failCount 个失败' : ''}')),
+      );
+      // 刷新文件列表并退出选择模式
       _loadObjects();
-    } else {
-      logError('Upload failed: ${result.errorMessage}');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('上传失败: ${result.errorMessage}')),
-      );
+      _exitSelectionMode();
     }
   }
 
