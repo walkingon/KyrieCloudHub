@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import '../../utils/logger.dart' as logger;
 
 class HttpClient {
   late final Dio _dio;
@@ -26,13 +27,21 @@ class HttpClient {
     void Function(int, int)? onReceiveProgress,
     CancelToken? cancelToken,
   }) async {
-    return await _dio.get(
-      path,
-      queryParameters: queryParameters,
-      options: Options(headers: headers),
-      onReceiveProgress: onReceiveProgress,
-      cancelToken: cancelToken,
-    );
+    logger.log('[HTTP GET] Request: $path, params: $queryParameters');
+    try {
+      final response = await _dio.get(
+        path,
+        queryParameters: queryParameters,
+        options: Options(headers: headers),
+        onReceiveProgress: onReceiveProgress,
+        cancelToken: cancelToken,
+      );
+      _logResponse('GET', path, response);
+      return response;
+    } on DioException catch (e) {
+      _logError('GET', path, e);
+      rethrow;
+    }
   }
 
   Future<Response> post(
@@ -43,14 +52,22 @@ class HttpClient {
     void Function(int, int)? onSendProgress,
     CancelToken? cancelToken,
   }) async {
-    return await _dio.post(
-      path,
-      data: data,
-      queryParameters: queryParameters,
-      options: Options(headers: headers),
-      onSendProgress: onSendProgress,
-      cancelToken: cancelToken,
-    );
+    logger.log('[HTTP POST] Request: $path, data: $data');
+    try {
+      final response = await _dio.post(
+        path,
+        data: data,
+        queryParameters: queryParameters,
+        options: Options(headers: headers),
+        onSendProgress: onSendProgress,
+        cancelToken: cancelToken,
+      );
+      _logResponse('POST', path, response);
+      return response;
+    } on DioException catch (e) {
+      _logError('POST', path, e);
+      rethrow;
+    }
   }
 
   Future<Response> put(
@@ -61,14 +78,22 @@ class HttpClient {
     void Function(int, int)? onSendProgress,
     CancelToken? cancelToken,
   }) async {
-    return await _dio.put(
-      path,
-      data: data,
-      queryParameters: queryParameters,
-      options: Options(headers: headers),
-      onSendProgress: onSendProgress,
-      cancelToken: cancelToken,
-    );
+    logger.log('[HTTP PUT] Request: $path, data: $data');
+    try {
+      final response = await _dio.put(
+        path,
+        data: data,
+        queryParameters: queryParameters,
+        options: Options(headers: headers),
+        onSendProgress: onSendProgress,
+        cancelToken: cancelToken,
+      );
+      _logResponse('PUT', path, response);
+      return response;
+    } on DioException catch (e) {
+      _logError('PUT', path, e);
+      rethrow;
+    }
   }
 
   Future<Response> delete(
@@ -78,13 +103,21 @@ class HttpClient {
     Map<String, dynamic>? headers,
     CancelToken? cancelToken,
   }) async {
-    return await _dio.delete(
-      path,
-      data: data,
-      queryParameters: queryParameters,
-      options: Options(headers: headers),
-      cancelToken: cancelToken,
-    );
+    logger.log('[HTTP DELETE] Request: $path, data: $data');
+    try {
+      final response = await _dio.delete(
+        path,
+        data: data,
+        queryParameters: queryParameters,
+        options: Options(headers: headers),
+        cancelToken: cancelToken,
+      );
+      _logResponse('DELETE', path, response);
+      return response;
+    } on DioException catch (e) {
+      _logError('DELETE', path, e);
+      rethrow;
+    }
   }
 
   Future<Response> download(
@@ -94,12 +127,33 @@ class HttpClient {
     Map<String, dynamic>? headers,
     CancelToken? cancelToken,
   }) async {
-    return await _dio.download(
-      url,
-      savePath,
-      onReceiveProgress: onReceiveProgress,
-      options: Options(headers: headers),
-      cancelToken: cancelToken,
+    logger.log('[HTTP DOWNLOAD] Request: $url -> $savePath');
+    try {
+      final response = await _dio.download(
+        url,
+        savePath,
+        onReceiveProgress: onReceiveProgress,
+        options: Options(headers: headers),
+        cancelToken: cancelToken,
+      );
+      logger.log('[HTTP DOWNLOAD] Completed: $url, status: ${response.statusCode}');
+      return response;
+    } on DioException catch (e) {
+      _logError('DOWNLOAD', url, e);
+      rethrow;
+    }
+  }
+
+  void _logResponse(String method, String path, Response response) {
+    logger.log(
+      '[HTTP $method] Response: $path, status: ${response.statusCode}, '
+      'data: ${response.data?.toString().substring(0, 500)}',
+    );
+  }
+
+  void _logError(String method, String path, DioException e) {
+    logger.log(
+      '[HTTP $method] Error: $path, type: ${e.type}, message: ${e.message}',
     );
   }
 }
