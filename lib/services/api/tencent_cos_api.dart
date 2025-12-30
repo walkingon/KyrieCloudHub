@@ -2,9 +2,11 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import 'package:xml/xml.dart';
 import '../../models/bucket.dart';
 import '../../models/object_file.dart';
 import '../../models/platform_credential.dart';
+import '../../utils/logger.dart';
 import 'cloud_platform_api.dart';
 import 'http_client.dart';
 
@@ -114,12 +116,16 @@ class TencentCosApi implements ICloudPlatformApi {
       // 使用 service.cos.myqcloud.com 查询所有存储桶（不指定地域）
       final url = 'https://service.cos.myqcloud.com/';
       final host = 'service.cos.myqcloud.com';
+      log('[TencentCOS] 开始查询存储桶列表, URL: $url');
+
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       final end = now + 3600;
       final keyTime = '$now;$end';
 
       // 生成 GMT 格式的 Date 头部
       final date = HttpDate.format(DateTime.now().toUtc());
+
+      log('[TencentCOS] 生成签名, Date: $date, Host: $host');
 
       // 生成签名时需要包含 Host 和 Date 头部（按字典序排序）
       final headersForSign = {'date': date, 'host': host};
@@ -130,6 +136,8 @@ class TencentCosApi implements ICloudPlatformApi {
         credential.secretId,
         credential.secretKey,
       );
+
+      log('[TencentCOS] 签名生成完成, Signature: $signature');
 
       // 生成 headerList 和 urlParamList 用于 Authorization（按字典序排序）
       final headerList = 'date;host';
@@ -143,29 +151,65 @@ class TencentCosApi implements ICloudPlatformApi {
         'Date': date,
       };
 
+      log('[TencentCOS] 发送GET请求...');
       final response = await httpClient.get(url, headers: headers);
+      log('[TencentCOS] 响应状态码: ${response.statusCode}');
+
       if (response.statusCode == 200) {
+        // 记录原始响应数据
+        final responseData = response.data?.toString() ?? '';
+        log('[TencentCOS] 原始响应数据: $responseData');
+
         // 解析XML响应，提取存储桶列表
-        final buckets = _parseBucketsFromXml(response.data);
+        final buckets = _parseBucketsFromXml(responseData);
+        log('[TencentCOS] 解析完成, 共 ${buckets.length} 个存储桶');
         return ApiResponse.success(buckets);
       } else {
+        final errorData = response.data?.toString() ?? '';
+        logError('[TencentCOS] 查询存储桶失败, 状态码: ${response.statusCode}, 响应: $errorData');
         return ApiResponse.error(
-          'Failed to list buckets',
+          'Failed to list buckets, status: ${response.statusCode}',
           statusCode: response.statusCode,
         );
       }
     } on DioException catch (e) {
       final errorDetail = _parseTencentCloudError(e);
+      logError('[TencentCOS] DioException: $errorDetail');
       return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
-    } catch (e) {
+    } catch (e, stack) {
+      logError('[TencentCOS] 异常: $e', stack);
       return ApiResponse.error(e.toString());
     }
   }
 
   List<Bucket> _parseBucketsFromXml(String xml) {
-    // 简化的XML解析，实际需要使用xml包
     final buckets = <Bucket>[];
-    // 假设解析逻辑
+
+    // 使用 xml 包解析
+    final document = XmlDocument.parse(xml);
+    final bucketsElement = document.findElements('ListAllMyBucketsResult').first;
+    final bucketsList = bucketsElement.findElements('Buckets').first;
+    final bucketElements = bucketsList.findElements('Bucket');
+
+    for (final bucketElement in bucketElements) {
+      final name = bucketElement.findElements('Name').first.innerText;
+      final region = bucketElement.findElements('Location').first.innerText;
+      final creationDateStr = bucketElement.findElements('CreationDate').first.innerText;
+
+      DateTime? creationDate;
+      try {
+        creationDate = DateTime.parse(creationDateStr);
+      } catch (e) {
+        creationDate = null;
+      }
+
+      buckets.add(Bucket(
+        name: name,
+        region: region,
+        creationDate: creationDate,
+      ));
+    }
+
     return buckets;
   }
 
@@ -221,9 +265,49 @@ class TencentCosApi implements ICloudPlatformApi {
   }
 
   ListObjectsResult _parseObjectsFromXml(String xml) {
-    // 解析XML，提取对象列表
+    // 使用 xml 包解析
+    final document = XmlDocument.parse(xml);
+    final resultElement = document.findElements('ListBucketResult').first;
+
     final objects = <ObjectFile>[];
-    // 假设解析逻辑
+    final contentsElements = resultElement.findElements('Contents');
+
+    for (final content in contentsElements) {
+      final key = content.findElements('Key').first.innerText;
+      final lastModifiedStr = content.findElements('LastModified').first.innerText;
+      final sizeStr = content.findElements('Size').first.innerText;
+      final etag = content.findElements('ETag').first.innerText;
+
+      DateTime? lastModified;
+      try {
+        lastModified = DateTime.parse(lastModifiedStr);
+      } catch (e) {
+        lastModified = null;
+      }
+
+      int? size;
+      try {
+        size = int.parse(sizeStr);
+      } catch (e) {
+        size = 0;
+      }
+
+      // 从 key 中提取文件名
+      final name = key.split('/').where((e) => e.isNotEmpty).lastOrNull ?? '';
+
+      // 判断是文件夹还是文件
+      final isFolder = key.endsWith('/');
+
+      objects.add(ObjectFile(
+        key: key,
+        name: name,
+        size: size,
+        lastModified: lastModified,
+        etag: etag,
+        type: isFolder ? ObjectType.folder : ObjectType.file,
+      ));
+    }
+
     return ListObjectsResult(objects: objects);
   }
 
@@ -421,48 +505,25 @@ class TencentCosApi implements ICloudPlatformApi {
       return 'HTTP $statusCode error: ${e.message}';
     }
 
-    // 尝试从XML中提取错误信息
-    final dataStr = errorData.toString();
+    // 使用 xml 包解析错误响应
+    try {
+      final dataStr = errorData.toString();
+      final document = XmlDocument.parse(dataStr);
+      final errorElement = document.findElements('Error').first;
 
-    // 提取 Code
-    final codeMatch = RegExp(r'<Code>([^<]+)</Code>').firstMatch(dataStr);
-    final code = codeMatch?.group(1);
+      final code = errorElement.findElements('Code').first.innerText;
+      final message = errorElement.findElements('Message').first.innerText;
+      final resource = errorElement.findElements('Resource').first.innerText;
+      final requestId = errorElement.findElements('RequestId').first.innerText;
 
-    // 提取 Message
-    final messageMatch = RegExp(
-      r'<Message>([^<]+)</Message>',
-    ).firstMatch(dataStr);
-    final message = messageMatch?.group(1);
-
-    // 提取 Resource
-    final resourceMatch = RegExp(
-      r'<Resource>([^<]+)</Resource>',
-    ).firstMatch(dataStr);
-    final resource = resourceMatch?.group(1);
-
-    // 提取 RequestId
-    final requestIdMatch = RegExp(
-      r'<RequestId>([^<]+)</RequestId>',
-    ).firstMatch(dataStr);
-    final requestId = requestIdMatch?.group(1);
-
-    // 构建错误描述
-    final buffer = StringBuffer();
-    buffer.write('腾讯云API错误 (HTTP $statusCode)');
-
-    if (code != null) {
-      buffer.write('\n  Code: $code');
+      return '腾讯云API错误 (HTTP $statusCode)\n'
+          '  Code: $code\n'
+          '  Message: $message\n'
+          '  Resource: $resource\n'
+          '  RequestId: $requestId';
+    } catch (parseError) {
+      // 如果 XML 解析失败，回退到原始方式
+      return 'HTTP $statusCode error: $errorData';
     }
-    if (message != null) {
-      buffer.write('\n  Message: $message');
-    }
-    if (resource != null) {
-      buffer.write('\n  Resource: $resource');
-    }
-    if (requestId != null) {
-      buffer.write('\n  RequestId: $requestId');
-    }
-
-    return buffer.toString();
   }
 }
