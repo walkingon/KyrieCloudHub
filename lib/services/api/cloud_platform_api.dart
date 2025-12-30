@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import '../../models/bucket.dart';
 import '../../models/object_file.dart';
 
@@ -47,6 +49,25 @@ abstract class ICloudPlatformApi {
     required String objectKey,
     required List<int> data,
     void Function(int sent, int total)? onProgress,
+  });
+
+  /// 分块上传文件
+  ///
+  /// [file] 要上传的本地文件
+  /// [bucketName] 存储桶名称
+  /// [region] 地域
+  /// [objectKey] 对象键
+  /// [chunkSize] 分块大小 (字节), 默认 1MB
+  /// [onProgress] 进度回调 (已上传字节数, 总字节数)
+  /// [onStatusChanged] 状态变更回调
+  Future<ApiResponse<void>> uploadObjectMultipart({
+    required String bucketName,
+    required String region,
+    required String objectKey,
+    required File file,
+    int chunkSize = 64 * 1024 * 1024, // 64MB 分块
+    void Function(int sent, int total)? onProgress,
+    void Function(int status)? onStatusChanged,
   });
 
   Future<ApiResponse<List<int>>> downloadObject({

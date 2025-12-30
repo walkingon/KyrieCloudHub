@@ -114,20 +114,48 @@ class Logger {
 
   /// 网络请求开始
   void networkRequest(String method, String url, [Map<String, dynamic>? params]) {
-    final paramsStr = params != null ? ' Params: $params' : '';
+    String paramsStr = '';
+    if (params != null) {
+      // 处理大型数据（如 Uint8List），避免打印巨量数据
+      final processedParams = <String, dynamic>{};
+      for (final entry in params.entries) {
+        final value = entry.value;
+        if (value is Uint8List) {
+          processedParams[entry.key] = '<Uint8List: ${value.length} bytes>';
+        } else if (value is List && value.isNotEmpty && value[0] is int) {
+          // 可能是字节列表
+          processedParams[entry.key] = '<List<int>: ${value.length} elements>';
+        } else {
+          processedParams[entry.key] = value;
+        }
+      }
+      paramsStr = ' Params: $processedParams';
+    }
     log(LogType.network, '[REQUEST] $method $url$paramsStr', LogLevel.info);
   }
 
   /// 网络响应日志
   void networkResponse(String url, int statusCode, [dynamic response]) {
-    final responseStr = response != null ? ' Response: $response' : '';
+    String responseStr = '';
+    if (response != null) {
+      final responseStrRaw = response.toString();
+      // 限制响应数据长度，避免日志过大
+      responseStr = responseStrRaw.length > 1000
+          ? ' Response: ${responseStrRaw.substring(0, 1000)}... [${responseStrRaw.length} chars total]'
+          : ' Response: $responseStrRaw';
+    }
     final level = statusCode >= 400 ? LogLevel.error : LogLevel.info;
     log(LogType.network, '[RESPONSE] $url Status: $statusCode$responseStr', level);
   }
 
   /// 网络错误日志
   void networkError(String url, dynamic error) {
-    log(LogType.network, '[ERROR] $url Error: $error', LogLevel.error);
+    String errorStr = error.toString();
+    // 限制错误信息长度
+    if (errorStr.length > 2000) {
+      errorStr = '${errorStr.substring(0, 2000)}... [${errorStr.length} chars total]';
+    }
+    log(LogType.network, '[ERROR] $url Error: $errorStr', LogLevel.error);
   }
 
   /// 异常错误日志

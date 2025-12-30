@@ -9,6 +9,7 @@ import '../../models/platform_credential.dart';
 import '../../utils/logger.dart';
 import 'cloud_platform_api.dart';
 import 'http_client.dart';
+import '../multipart_upload/multipart_upload_manager.dart';
 
 class TencentCosApi implements ICloudPlatformApi {
   final PlatformCredential credential;
@@ -98,9 +99,10 @@ class TencentCosApi implements ICloudPlatformApi {
         ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
 
       // 生成 HttpParameters: key1=value1&key2=value2
+      // 注意：等号不编码，这是腾讯云的要求
       httpParameters = sortedParams.map((e) {
-        final key = _urlEncode(e.key.toLowerCase());
-        final value = _urlEncode(e.value);
+        final key = Uri.encodeComponent(e.key.toLowerCase());
+        final value = Uri.encodeComponent(e.value);
         return '$key=$value';
       }).join('&');
     }
@@ -537,6 +539,89 @@ class TencentCosApi implements ICloudPlatformApi {
       }
     }
     return ApiResponse.success(null);
+  }
+
+  @override
+  Future<ApiResponse<void>> uploadObjectMultipart({
+    required String bucketName,
+    required String region,
+    required String objectKey,
+    required File file,
+    int chunkSize = 64 * 1024 * 1024, // 64MB 分块
+    void Function(int sent, int total)? onProgress,
+    void Function(int status)? onStatusChanged,
+  }) async {
+    try {
+      log('[TencentCOS] 开始分块上传: ${file.path} -> $objectKey');
+
+      final manager = MultipartUploadManager(
+        credential: credential,
+        httpClient: httpClient,
+        bucketName: bucketName,
+        region: region,
+        objectKey: objectKey,
+        chunkSize: chunkSize,
+      );
+
+      // 设置签名回调，复用 TencentCosApi 的签名方法
+      manager.getSignature = (method, path, {queryParams}) async {
+        final date = HttpDate.format(DateTime.now().toUtc());
+        // 注意：Date 头部保持原始格式，不要转小写；Host 需要转小写
+        // 对于 uploadPart 请求，还需要包含 content-length 和 content-md5
+        final headersForSign = {'host': '$bucketName.cos.$region.myqcloud.com'.toLowerCase(), 'date': date};
+        return _getSignature(
+          method,
+          path,
+          headersForSign,
+          queryParams: queryParams,
+          secretId: credential.secretId,
+          secretKey: credential.secretKey,
+        );
+      };
+
+      // 设置签名回调（带额外头部，用于 uploadPart）
+      manager.getSignatureWithHeaders = (method, path, extraHeaders, {queryParams}) async {
+        final date = HttpDate.format(DateTime.now().toUtc());
+        // 基础头部
+        final headersForSign = {'host': '$bucketName.cos.$region.myqcloud.com'.toLowerCase(), 'date': date};
+        // 合并额外头部
+        headersForSign.addAll(extraHeaders);
+        return _getSignature(
+          method,
+          path,
+          headersForSign,
+          queryParams: queryParams,
+          secretId: credential.secretId,
+          secretKey: credential.secretKey,
+        );
+      };
+
+      // 设置状态回调
+      if (onStatusChanged != null) {
+        manager.onStatusChanged = (status) {
+          onStatusChanged(status.index);
+        };
+      }
+
+      // 上传文件
+      final success = await manager.uploadFile(
+        file,
+        onProgress: (bytesUploaded, totalBytes) {
+          onProgress?.call(bytesUploaded, totalBytes);
+        },
+      );
+
+      if (success) {
+        log('[TencentCOS] 分块上传成功');
+        return ApiResponse.success(null);
+      } else {
+        logError('[TencentCOS] 分块上传失败: ${manager.errorMessage}');
+        return ApiResponse.error(manager.errorMessage ?? '分块上传失败');
+      }
+    } catch (e, stack) {
+      logError('[TencentCOS] 分块上传异常: $e', stack);
+      return ApiResponse.error(e.toString());
+    }
   }
 
   /// 解析腾讯云API错误响应

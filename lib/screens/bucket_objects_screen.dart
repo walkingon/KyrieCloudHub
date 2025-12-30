@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import '../models/bucket.dart';
 import '../models/object_file.dart';
 import '../models/platform_type.dart';
+import '../services/api/cloud_platform_api.dart';
 import '../services/cloud_platform_factory.dart';
 import '../services/storage_service.dart';
 import '../utils/logger.dart';
@@ -359,22 +360,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     final pickedFile = result.files.first;
     logUi('Selected file: ${pickedFile.name}, size: ${pickedFile.size} bytes');
 
+    // 判断文件大小，选择上传方式
+    final fileSize = pickedFile.size;
+    const largeFileThreshold = 100 * 1024 * 1024; // 100MB
+
     if (!mounted) return;
-
-    // 读取文件内容
-    final fileBytes = await _readFileBytes(pickedFile);
-    if (fileBytes == null) {
-      logError('Failed to read file bytes');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('读取文件失败')),
-        );
-      }
-      return;
-    }
-
-    // 构建上传路径
-    final objectKey = pickedFile.name;
 
     // 获取凭证并创建API
     final credential = await _storage.getCredential(widget.platform);
@@ -389,9 +379,12 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       return;
     }
 
+    // 构建上传路径
+    final objectKey = pickedFile.name;
+
     // 进度状态
     int sent = 0;
-    int total = fileBytes.length;
+    int total = fileSize;
     double progress = 0.0;
 
     // 显示上传进度对话框（不阻塞上传）
@@ -425,41 +418,86 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       },
     );
 
-    // 执行上传（非阻塞）
-    logUi('Starting upload: $objectKey');
-    unawaited(api.uploadObject(
-      bucketName: widget.bucket.name,
-      region: widget.bucket.region,
-      objectKey: objectKey,
-      data: fileBytes,
-      onProgress: (s, t) {
-        if (!mounted) return;
-        setState(() {
-          sent = s;
-          total = t;
-          progress = t > 0 ? s / t : 0.0;
-        });
-      },
-    ).then((result) {
-      if (mounted) {
-        // 关闭进度对话框
-        Navigator.of(context).pop();
+    // 执行上传
+    logUi('Starting upload: $objectKey (${fileSize > largeFileThreshold ? '分块上传' : '简单上传'})');
 
-        if (result.success) {
-          logUi('Upload successful: $objectKey');
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('上传成功: ${pickedFile.name}')),
-          );
-          // 刷新文件列表
-          _loadObjects();
-        } else {
-          logError('Upload failed: ${result.errorMessage}');
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('上传失败: ${result.errorMessage}')),
-          );
+    if (fileSize > largeFileThreshold && pickedFile.path != null) {
+      // 大文件使用分块上传
+      unawaited(api.uploadObjectMultipart(
+        bucketName: widget.bucket.name,
+        region: widget.bucket.region,
+        objectKey: objectKey,
+        file: File(pickedFile.path!),
+        chunkSize: 64 * 1024 * 1024, // 64MB 分块
+        onProgress: (s, t) {
+          if (!mounted) return;
+          setState(() {
+            sent = s;
+            total = t > 0 ? t : fileSize;
+            progress = total > 0 ? s / total : 0.0;
+          });
+        },
+        onStatusChanged: (status) {
+          log('[Upload] Status changed: $status');
+        },
+      ).then((result) {
+        if (mounted) {
+          _handleUploadResult(context, result, pickedFile.name);
         }
-      }
-    }));
+      }));
+    } else {
+      // 小文件使用简单上传，先读取到内存
+      unawaited(_readFileBytes(pickedFile).then((fileBytes) async {
+        if (fileBytes == null) {
+          if (mounted) {
+            Navigator.of(context).pop();
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('读取文件失败')),
+            );
+          }
+          return;
+        }
+
+        final result = await api.uploadObject(
+          bucketName: widget.bucket.name,
+          region: widget.bucket.region,
+          objectKey: objectKey,
+          data: fileBytes,
+          onProgress: (s, t) {
+            if (!mounted) return;
+            setState(() {
+              sent = s;
+              total = t;
+              progress = t > 0 ? s / t : 0.0;
+            });
+          },
+        );
+
+        if (mounted) {
+          _handleUploadResult(context, result, pickedFile.name);
+        }
+      }));
+    }
+  }
+
+  /// 处理上传结果
+  void _handleUploadResult(BuildContext context, ApiResponse<void> result, String fileName) {
+    // 关闭进度对话框
+    Navigator.of(context).pop();
+
+    if (result.success) {
+      logUi('Upload successful: $fileName');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('上传成功: $fileName')),
+      );
+      // 刷新文件列表
+      _loadObjects();
+    } else {
+      logError('Upload failed: ${result.errorMessage}');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('上传失败: ${result.errorMessage}')),
+      );
+    }
   }
 
   /// 读取文件字节
