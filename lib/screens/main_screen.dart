@@ -22,6 +22,7 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   PlatformType? _currentPlatform;
   List<dynamic> _buckets = [];
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   @override
   void initState() {
@@ -41,6 +42,20 @@ class _MainScreenState extends State<MainScreen> {
       _loadBuckets();
     } else {
       logUi('No last platform found, showing empty state');
+    }
+  }
+
+  /// 刷新当前平台数据（从平台选择界面返回时调用）
+  Future<void> _refreshCurrentPlatform() async {
+    final storage = Provider.of<StorageService>(context, listen: false);
+    final lastPlatform = await storage.getLastPlatform();
+    if (lastPlatform != null) {
+      setState(() {
+        _currentPlatform = lastPlatform;
+        _buckets = []; // 清空旧数据
+      });
+      logUi('Refreshed platform: ${lastPlatform.displayName}');
+      _loadBuckets();
     }
   }
 
@@ -80,6 +95,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       appBar: AppBar(
         title: Text(_currentPlatform?.displayName ?? ''),
         centerTitle: true,
@@ -100,12 +116,16 @@ class _MainScreenState extends State<MainScreen> {
               title: Text('平台切换'),
               onTap: () {
                 logUi('User tapped: 平台切换');
-                Navigator.push(
+                _scaffoldKey.currentState?.closeDrawer();
+                Navigator.pushReplacement(
                   context,
                   MaterialPageRoute(
                     builder: (context) => PlatformSelectionScreen(),
                   ),
-                );
+                ).then((_) {
+                  // 从平台选择界面返回时刷新数据
+                  _refreshCurrentPlatform();
+                });
               },
             ),
             ListTile(

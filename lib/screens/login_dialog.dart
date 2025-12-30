@@ -30,6 +30,11 @@ class _LoginDialogState extends State<LoginDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // 根据平台类型选择合适的占位符文本
+    final isAliyun = widget.platform == PlatformType.aliCloud;
+    final idLabel = isAliyun ? 'AccessKey ID' : 'SecretID';
+    final keyLabel = isAliyun ? 'AccessKey Secret' : 'SecretKey';
+
     return AlertDialog(
       title: Text('登录 ${widget.platform.displayName}'),
       content: Column(
@@ -37,11 +42,11 @@ class _LoginDialogState extends State<LoginDialog> {
         children: [
           TextField(
             controller: _secretIdController,
-            decoration: InputDecoration(labelText: 'SecretID'),
+            decoration: InputDecoration(labelText: idLabel),
           ),
           TextField(
             controller: _secretKeyController,
-            decoration: InputDecoration(labelText: 'SecretKey'),
+            decoration: InputDecoration(labelText: keyLabel),
             obscureText: true,
           ),
         ],
@@ -69,11 +74,12 @@ class _LoginDialogState extends State<LoginDialog> {
 
     logUi('Starting login for: ${widget.platform.displayName}');
 
+    // 使用 PlatformCredential 的默认地域（ap-beijing）
+    // 阿里云API会根据平台类型自动转换为正确的地域格式
     final credential = PlatformCredential(
       platformType: widget.platform,
       secretId: _secretIdController.text,
       secretKey: _secretKeyController.text,
-      region: 'ap-nanjing', // 默认区域
     );
 
     final factory = Provider.of<CloudPlatformFactory>(context, listen: false);

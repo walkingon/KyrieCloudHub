@@ -2,6 +2,7 @@ import '../models/platform_type.dart';
 import '../models/platform_credential.dart';
 import 'api/cloud_platform_api.dart';
 import 'api/tencent_cos_api.dart';
+import 'api/ali_yun_oss_api.dart';
 import 'api/http_client.dart';
 
 class CloudPlatformFactory {
@@ -20,7 +21,10 @@ class CloudPlatformFactory {
         }
         return null;
       case PlatformType.aliCloud:
-        throw UnimplementedError('Ali Cloud API not implemented yet');
+        if (credential != null) {
+          return AliyunOssApi(credential, httpClient);
+        }
+        return null;
     }
   }
 }
