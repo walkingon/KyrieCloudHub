@@ -26,13 +26,14 @@ class HttpClient {
     Map<String, dynamic>? headers,
     void Function(int, int)? onReceiveProgress,
     CancelToken? cancelToken,
+    ResponseType responseType = ResponseType.json,
   }) async {
     logNetworkRequest('GET', path, queryParameters);
     try {
       final response = await _dio.get(
         path,
         queryParameters: queryParameters,
-        options: Options(headers: headers),
+        options: Options(headers: headers, responseType: responseType),
         onReceiveProgress: onReceiveProgress,
         cancelToken: cancelToken,
       );

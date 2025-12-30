@@ -451,6 +451,7 @@ class TencentCosApi implements ICloudPlatformApi {
         url,
         headers: headers,
         onReceiveProgress: onProgress,
+        responseType: ResponseType.bytes,
       );
       if (response.statusCode == 200) {
         return ApiResponse.success(response.data);

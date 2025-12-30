@@ -143,9 +143,131 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
   Future<void> _downloadObject(ObjectFile obj) async {
     logUi('Starting download for: ${obj.name}');
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text('下载功能待实现')));
+
+    // 让用户选择保存位置
+    logUi('Opening file picker for save location');
+    final savePath = await FilePicker.platform.saveFile(
+      dialogTitle: '保存文件',
+      fileName: obj.name,
+    );
+
+    if (savePath == null || savePath.isEmpty) {
+      logUi('User cancelled file save dialog');
+      return;
+    }
+
+    logUi('User selected save path: $savePath');
+
+    // 获取凭证并创建API
+    final credential = await _storage.getCredential(widget.platform);
+    if (credential == null) {
+      logError('No credential found for platform: ${widget.platform}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('下载失败：未找到凭证')),
+        );
+      }
+      return;
+    }
+
+    final api = _factory.createApi(widget.platform, credential: credential);
+    if (api == null) {
+      logError('Failed to create API for platform: ${widget.platform}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('下载失败：API创建失败')),
+        );
+      }
+      return;
+    }
+
+    // 进度状态
+    int received = 0;
+    int total = obj.size > 0 ? obj.size : 1;
+    double progress = 0.0;
+
+    // 显示下载进度对话框（不阻塞下载）
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Text('下载中'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('正在下载: ${obj.name}', maxLines: 2),
+                  SizedBox(height: 16),
+                  SizedBox(
+                    width: 200,
+                    child: LinearProgressIndicator(
+                      value: progress,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text('${(progress * 100).toInt()}% (${_formatBytes(received)} / ${_formatBytes(total)})'),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    // 执行下载（非阻塞）
+    logUi('Starting download: ${obj.key}');
+    unawaited(api.downloadObject(
+      bucketName: widget.bucket.name,
+      region: widget.bucket.region,
+      objectKey: obj.key,
+      onProgress: (r, t) {
+        if (!mounted) return;
+        setState(() {
+          received = r;
+          total = t > 0 ? t : 1;
+          progress = total > 0 ? r / total : 0.0;
+        });
+      },
+    ).then((downloadResult) async {
+      if (!mounted) return;
+
+      // 关闭进度对话框
+      Navigator.of(context).pop();
+
+      if (downloadResult.success && downloadResult.data != null) {
+        logUi('Download completed, saving file: ${obj.name}');
+
+        // 保存文件到用户选择的位置
+        try {
+          final file = File(savePath);
+          await file.writeAsBytes(downloadResult.data!);
+
+          logUi('File saved to: $savePath');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('下载成功: ${obj.name}\n保存到: $savePath')),
+            );
+          }
+        } catch (e) {
+          logError('Failed to save file: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('下载失败：保存文件失败')),
+            );
+          }
+        }
+      } else {
+        logError('Download failed: ${downloadResult.errorMessage}');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('下载失败: ${downloadResult.errorMessage}')),
+          );
+        }
+      }
+    }));
   }
 
   Future<void> _deleteObject(ObjectFile obj) async {
