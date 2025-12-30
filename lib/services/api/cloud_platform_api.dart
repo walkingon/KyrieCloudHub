@@ -1,5 +1,6 @@
 import '../../models/bucket.dart';
 import '../../models/object_file.dart';
+import '../../models/transfer_task.dart';
 
 class ApiResponse<T> {
   final bool success;
@@ -66,5 +67,42 @@ abstract class ICloudPlatformApi {
     required String bucketName,
     required String region,
     required List<String> objectKeys,
+  });
+
+  // ========== 分片上传相关 ==========
+
+  /// 初始化分片上传
+  Future<ApiResponse<String>> initMultipartUpload({
+    required String bucketName,
+    required String region,
+    required String objectKey,
+  });
+
+  /// 上传分片
+  Future<ApiResponse<String>> uploadPart({
+    required String bucketName,
+    required String region,
+    required String objectKey,
+    required String uploadId,
+    required int partNumber,
+    required List<int> data,
+    void Function(int sent, int total)? onProgress,
+  });
+
+  /// 完成分片上传
+  Future<ApiResponse<void>> completeMultipartUpload({
+    required String bucketName,
+    required String region,
+    required String objectKey,
+    required String uploadId,
+    required List<PartInfo> parts,
+  });
+
+  /// 中止分片上传
+  Future<ApiResponse<void>> abortMultipartUpload({
+    required String bucketName,
+    required String region,
+    required String objectKey,
+    required String uploadId,
   });
 }

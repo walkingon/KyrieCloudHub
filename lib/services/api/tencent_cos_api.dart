@@ -6,6 +6,7 @@ import 'package:xml/xml.dart';
 import '../../models/bucket.dart';
 import '../../models/object_file.dart';
 import '../../models/platform_credential.dart';
+import '../../models/transfer_task.dart';
 import '../../utils/logger.dart';
 import 'cloud_platform_api.dart';
 import 'http_client.dart';
@@ -537,6 +538,276 @@ class TencentCosApi implements ICloudPlatformApi {
       }
     }
     return ApiResponse.success(null);
+  }
+
+  // ========== 分片上传实现 ==========
+
+  @override
+  Future<ApiResponse<String>> initMultipartUpload({
+    required String bucketName,
+    required String region,
+    required String objectKey,
+  }) async {
+    try {
+      final host = '$bucketName.cos.$region.myqcloud.com';
+      final url = 'https://$host/$objectKey?uploads';
+
+      final date = HttpDate.format(DateTime.now().toUtc());
+      final headersForSign = {'host': host, 'date': date};
+      final signature = _getSignature(
+        'POST',
+        '/$objectKey?uploads',
+        headersForSign,
+        secretId: credential.secretId,
+        secretKey: credential.secretKey,
+      );
+
+      final headers = {
+        'Authorization':
+            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=${DateTime.now().millisecondsSinceEpoch ~/ 1000};${DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600}&q-key-time=${DateTime.now().millisecondsSinceEpoch ~/ 1000};${DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600}&q-header-list=date;host&q-url-param-list=uploads&q-signature=$signature',
+        'Host': host,
+        'Date': date,
+      };
+
+      log('[TencentCOS] 初始化分片上传, URL: $url');
+
+      final response = await httpClient.post(url, headers: headers, data: '');
+
+      if (response.statusCode == 200) {
+        final responseData = response.data?.toString() ?? '';
+        log('[TencentCOS] 初始化分片响应: $responseData');
+
+        // 解析XML响应，提取UploadId
+        final uploadId = _parseUploadIdFromXml(responseData);
+        log('[TencentCOS] 获取到UploadId: $uploadId');
+        return ApiResponse.success(uploadId);
+      } else {
+        final errorDetail = _parseDioError(response, url);
+        logError('[TencentCOS] 初始化分片上传失败: $errorDetail');
+        return ApiResponse.error(errorDetail, statusCode: response.statusCode);
+      }
+    } on DioException catch (e) {
+      final errorDetail = _parseTencentCloudError(e);
+      logError('[TencentCOS] DioException: $errorDetail');
+      return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
+    } catch (e, stack) {
+      logError('[TencentCOS] 异常: $e', stack);
+      return ApiResponse.error(e.toString());
+    }
+  }
+
+  String _parseDioError(Response response, String url) {
+    final statusCode = response.statusCode ?? 0;
+    final errorData = response.data?.toString() ?? '';
+    return 'HTTP $statusCode error at $url: $errorData';
+  }
+
+  String _parseUploadIdFromXml(String xml) {
+    try {
+      final document = XmlDocument.parse(xml);
+      final initiatorElement = document.findElements('InitiateMultipartUploadResult').first;
+      final uploadIdElement = initiatorElement.findElements('UploadId').first;
+      return uploadIdElement.innerText;
+    } catch (e) {
+      logError('[TencentCOS] 解析UploadId失败: $e');
+      return '';
+    }
+  }
+
+  @override
+  Future<ApiResponse<String>> uploadPart({
+    required String bucketName,
+    required String region,
+    required String objectKey,
+    required String uploadId,
+    required int partNumber,
+    required List<int> data,
+    void Function(int sent, int total)? onProgress,
+  }) async {
+    try {
+      final host = '$bucketName.cos.$region.myqcloud.com';
+      final url =
+          'https://$host/$objectKey?partNumber=$partNumber&uploadId=${Uri.encodeComponent(uploadId)}';
+
+      final date = HttpDate.format(DateTime.now().toUtc());
+      final headersForSign = {'host': host, 'date': date};
+      final signature = _getSignature(
+        'PUT',
+        '/$objectKey',
+        headersForSign,
+        queryParams: {'partNumber': partNumber.toString(), 'uploadId': uploadId},
+        secretId: credential.secretId,
+        secretKey: credential.secretKey,
+      );
+
+      // 生成 urlParamList
+      final sortedParams = ['partnumber', 'uploadid']
+          .map((e) => _urlEncode(e))
+          .join(';');
+
+      final headers = {
+        'Authorization':
+            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=${DateTime.now().millisecondsSinceEpoch ~/ 1000};${DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600}&q-key-time=${DateTime.now().millisecondsSinceEpoch ~/ 1000};${DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600}&q-header-list=date;host&q-url-param-list=$sortedParams&q-signature=$signature',
+        'Host': host,
+        'Date': date,
+        'Content-Type': 'application/octet-stream',
+      };
+
+      log('[TencentCOS] 上传分片 $partNumber, URL: $url');
+
+      final response = await httpClient.put(
+        url,
+        data: data,
+        headers: headers,
+        onSendProgress: onProgress,
+      );
+
+      if (response.statusCode == 200) {
+        // 从响应头获取ETag
+        final etag = response.headers['ETag']?.first ?? '';
+        final cleanEtag = etag.replaceAll('"', '');
+        log('[TencentCOS] 分片 $partNumber 上传成功, ETag: $cleanEtag');
+        return ApiResponse.success(cleanEtag);
+      } else {
+        final errorDetail = _parseDioError(response, url);
+        logError('[TencentCOS] 分片上传失败: $errorDetail');
+        return ApiResponse.error(errorDetail, statusCode: response.statusCode);
+      }
+    } on DioException catch (e) {
+      final errorDetail = _parseTencentCloudError(e);
+      logError('[TencentCOS] DioException: $errorDetail');
+      return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
+    } catch (e, stack) {
+      logError('[TencentCOS] 异常: $e', stack);
+      return ApiResponse.error(e.toString());
+    }
+  }
+
+  @override
+  Future<ApiResponse<void>> completeMultipartUpload({
+    required String bucketName,
+    required String region,
+    required String objectKey,
+    required String uploadId,
+    required List<PartInfo> parts,
+  }) async {
+    try {
+      final host = '$bucketName.cos.$region.myqcloud.com';
+      final url = 'https://$host/$objectKey?uploadId=${Uri.encodeComponent(uploadId)}';
+
+      final date = HttpDate.format(DateTime.now().toUtc());
+      final headersForSign = {'host': host, 'date': date};
+      final signature = _getSignature(
+        'POST',
+        '/$objectKey',
+        headersForSign,
+        queryParams: {'uploadId': uploadId},
+        secretId: credential.secretId,
+        secretKey: credential.secretKey,
+      );
+
+      // 生成 urlParamList
+      final urlParamList = 'uploadid';
+
+      final headers = {
+        'Authorization':
+            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=${DateTime.now().millisecondsSinceEpoch ~/ 1000};${DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600}&q-key-time=${DateTime.now().millisecondsSinceEpoch ~/ 1000};${DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600}&q-header-list=date;host&q-url-param-list=$urlParamList&q-signature=$signature',
+        'Host': host,
+        'Date': date,
+        'Content-Type': 'application/xml',
+      };
+
+      // 构建CompleteMultipartUpload请求体
+      final xmlBody = _buildCompleteMultipartUploadXml(parts);
+
+      log('[TencentCOS] 完成分片上传, URL: $url');
+      log('[TencentCOS] 请求体: $xmlBody');
+
+      final response = await httpClient.post(url, headers: headers, data: xmlBody);
+
+      if (response.statusCode == 200) {
+        log('[TencentCOS] 分片上传完成成功');
+        return ApiResponse.success(null);
+      } else {
+        final errorDetail = _parseDioError(response, url);
+        logError('[TencentCOS] 完成分片上传失败: $errorDetail');
+        return ApiResponse.error(errorDetail, statusCode: response.statusCode);
+      }
+    } on DioException catch (e) {
+      final errorDetail = _parseTencentCloudError(e);
+      logError('[TencentCOS] DioException: $errorDetail');
+      return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
+    } catch (e, stack) {
+      logError('[TencentCOS] 异常: $e', stack);
+      return ApiResponse.error(e.toString());
+    }
+  }
+
+  String _buildCompleteMultipartUploadXml(List<PartInfo> parts) {
+    final buffer = StringBuffer();
+    buffer.write('<?xml version="1.0" encoding="UTF-8"?>');
+    buffer.write('<CompleteMultipartUpload>');
+
+    for (final part in parts.where((p) => p.uploaded && p.etag != null)) {
+      buffer.write('<Part>');
+      buffer.write('<PartNumber>${part.partNumber}</PartNumber>');
+      buffer.write('<ETag>"${part.etag}"</ETag>');
+      buffer.write('</Part>');
+    }
+
+    buffer.write('</CompleteMultipartUpload>');
+    return buffer.toString();
+  }
+
+  @override
+  Future<ApiResponse<void>> abortMultipartUpload({
+    required String bucketName,
+    required String region,
+    required String objectKey,
+    required String uploadId,
+  }) async {
+    try {
+      final host = '$bucketName.cos.$region.myqcloud.com';
+      final url = 'https://$host/$objectKey?uploadId=${Uri.encodeComponent(uploadId)}';
+
+      final date = HttpDate.format(DateTime.now().toUtc());
+      final headersForSign = {'host': host, 'date': date};
+      final signature = _getSignature(
+        'DELETE',
+        '/$objectKey',
+        headersForSign,
+        queryParams: {'uploadId': uploadId},
+        secretId: credential.secretId,
+        secretKey: credential.secretKey,
+      );
+
+      final headers = {
+        'Authorization':
+            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=${DateTime.now().millisecondsSinceEpoch ~/ 1000};${DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600}&q-key-time=${DateTime.now().millisecondsSinceEpoch ~/ 1000};${DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600}&q-header-list=date;host&q-url-param-list=uploadid&q-signature=$signature',
+        'Host': host,
+        'Date': date,
+      };
+
+      log('[TencentCOS] 中止分片上传, URL: $url');
+
+      final response = await httpClient.delete(url, headers: headers);
+
+      if (response.statusCode == 204 || response.statusCode == 200) {
+        log('[TencentCOS] 分片上传已中止');
+        return ApiResponse.success(null);
+      } else {
+        final errorDetail = _parseDioError(response, url);
+        logError('[TencentCOS] 中止分片上传失败: $errorDetail');
+        return ApiResponse.error(errorDetail, statusCode: response.statusCode);
+      }
+    } on DioException catch (e) {
+      final errorDetail = _parseTencentCloudError(e);
+      logError('[TencentCOS] DioException: $errorDetail');
+      return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
+    } catch (e, stack) {
+      logError('[TencentCOS] 异常: $e', stack);
+      return ApiResponse.error(e.toString());
+    }
   }
 
   /// 解析腾讯云API错误响应

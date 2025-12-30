@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/platform_type.dart';
 import '../models/platform_credential.dart';
+import '../models/transfer_task.dart';
 
 class StorageService {
   static const String _keyLastPlatform = 'last_platform';
@@ -90,5 +91,77 @@ class StorageService {
         .where((key) => key.startsWith('transfer_task_'))
         .map((key) => key.replaceFirst('transfer_task_', ''))
         .toList();
+  }
+
+  // ========== 断点续传相关方法 ==========
+
+  /// 保存传输任务完整信息（包含断点续传数据）
+  Future<void> saveTransferTaskFull(TransferTask task) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'transfer_task_${task.id}';
+    await prefs.setString(key, jsonEncode(task.toJson()));
+  }
+
+  /// 获取传输任务完整信息
+  Future<TransferTask?> getTransferTaskFull(String taskId) async {
+    final jsonString = await getTransferTask(taskId);
+    if (jsonString == null) return null;
+    try {
+      return TransferTask.fromJson(jsonString);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// 保存断点续传信息
+  Future<void> saveResumeInfo(String taskId, ResumeInfo resumeInfo) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'resume_info_$taskId';
+    await prefs.setString(key, jsonEncode(resumeInfo.toJson()));
+  }
+
+  /// 获取断点续传信息
+  Future<ResumeInfo?> getResumeInfo(String taskId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'resume_info_$taskId';
+    final jsonString = prefs.getString(key);
+    if (jsonString == null) return null;
+    try {
+      return ResumeInfo.fromJson(jsonDecode(jsonString));
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /// 清除断点续传信息
+  Future<void> clearResumeInfo(String taskId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'resume_info_$taskId';
+    await prefs.remove(key);
+  }
+
+  /// 获取所有未完成的传输任务ID
+  Future<List<String>> getPendingTransferTaskIds() async {
+    final allIds = await getAllTransferTaskIds();
+    final pendingIds = <String>[];
+    for (final id in allIds) {
+      final task = await getTransferTaskFull(id);
+      if (task != null && !task.isCompleted && !task.isCancelled) {
+        pendingIds.add(id);
+      }
+    }
+    return pendingIds;
+  }
+
+  /// 清除所有已完成或已取消的任务
+  Future<void> cleanupCompletedTasks() async {
+    final allIds = await getAllTransferTaskIds();
+    for (final id in allIds) {
+      final task = await getTransferTaskFull(id);
+      if (task != null && (task.isCompleted || task.isCancelled)) {
+        await clearTransferTask(id);
+        await clearResumeInfo(id);
+      }
+    }
   }
 }
