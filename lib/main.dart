@@ -5,6 +5,7 @@ import 'screens/main_screen.dart';
 import 'services/cloud_platform_factory.dart';
 import 'services/storage_service.dart';
 import 'services/api/http_client.dart';
+import 'services/transfer_queue_service.dart';
 import 'utils/logger.dart';
 
 void main() async {
@@ -40,6 +41,9 @@ class MyApp extends StatelessWidget {
           create: (context) => CloudPlatformFactory(
             Provider.of<HttpClient>(context, listen: false),
           ),
+        ),
+        ChangeNotifierProvider<TransferQueueService>(
+          create: (_) => TransferQueueService(),
         ),
       ],
       child: MaterialApp(
