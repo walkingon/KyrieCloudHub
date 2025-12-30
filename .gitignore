@@ -44,6 +44,8 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
-
 # 第三方文档
 3rd_docs/
+
+# AI Agent
+.claude/

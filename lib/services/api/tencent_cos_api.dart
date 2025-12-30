@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import '../../models/bucket.dart';
@@ -29,22 +30,25 @@ class TencentCosApi implements ICloudPlatformApi {
   ) {
     // 生成签名时间（当前时间戳，有效期1小时）
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    final signTime = now.toString();
-    final keyTime = '$now;${now + 3600}';
+    final end = now + 3600;
+    final keyTime = '$now;$end'; // 完整的时间范围格式：start;end
 
-    // 1. 计算 SignKey = HMAC-SHA1(SecretKey, q-sign-time)
-    final signKey = _hmacSha1(secretKey, signTime);
+    // 1. 计算 SignKey = HMAC-SHA1(SecretKey, KeyTime)
+    // SignKey 是十六进制小写字符串
+    final signKey = _hmacSha1(secretKey, keyTime);
 
     // 2. 计算 CanonicalRequest 的 SHA1 哈希
     final canonicalRequest = _buildCanonicalRequest(method, path, headers);
     final sha1CanonicalRequest = sha1.convert(utf8.encode(canonicalRequest));
 
     // 3. 拼接 StringToSign = "sha1\n{q-sign-time}\n{SHA1(CanonicalRequest)}\n"
-    final stringToSign = 'sha1\n$signTime\n${sha1CanonicalRequest.toString()}\n';
+    final stringToSign = 'sha1\n$keyTime\n${sha1CanonicalRequest.toString()}\n';
 
     // 4. 计算 Signature = HMAC-SHA1(SignKey, StringToSign)
-    final signatureBytes = _hmacSha1Bytes(signKey, stringToSign);
-    return base64.encode(signatureBytes);
+    // SignKey 作为十六进制字符串，需要转换为字节后作为 HMAC 密钥
+    final signatureHex = _hmacSha1WithHexKey(signKey, stringToSign);
+
+    return signatureHex;
   }
 
   /// HMAC-SHA1 计算，返回十六进制字符串
@@ -56,7 +60,7 @@ class TencentCosApi implements ICloudPlatformApi {
     return digest.toString();
   }
 
-  /// HMAC-SHA1 计算，返回字节数组
+  /// HMAC-SHA1 计算，返回字节数组（密钥为字符串）
   List<int> _hmacSha1Bytes(String key, String data) {
     final keyBytes = utf8.encode(key);
     final dataBytes = utf8.encode(data);
@@ -65,34 +69,105 @@ class TencentCosApi implements ICloudPlatformApi {
     return digest.bytes;
   }
 
+  /// HMAC-SHA1 计算，返回字节数组（密钥为字节数组）
+  List<int> _hmacSha1BytesRaw(List<int> keyBytes, String data) {
+    final dataBytes = utf8.encode(data);
+    final hmac = Hmac(sha1, keyBytes);
+    final digest = hmac.convert(dataBytes);
+    return digest.bytes;
+  }
+
+  /// HMAC-SHA1 计算，SignKey 为十六进制字符串（作为字符串使用，非字节）
+  /// 腾讯云文档说明：SignKey 为密钥（字符串形式，非原始二进制）
+  String _hmacSha1WithHexKey(String hexKey, String data) {
+    // SignKey 作为字符串传递给 HMAC（不是转换为字节）
+    final keyBytes = utf8.encode(hexKey);
+    final dataBytes = utf8.encode(data);
+    final hmac = Hmac(sha1, keyBytes);
+    final digest = hmac.convert(dataBytes);
+    return digest.toString();
+  }
+
+  /// 十六进制字符串转字节数组
+  List<int> _hexToBytes(String hex) {
+    final bytes = <int>[];
+    for (var i = 0; i < hex.length; i += 2) {
+      final byte = int.parse(hex.substring(i, i + 2), radix: 16);
+      bytes.add(byte);
+    }
+    return bytes;
+  }
+
   /// 构建规范请求 (CanonicalRequest)
+  ///
+  /// 格式: HttpMethod\nUriPathname\nHttpParameters\nHttpHeaders\n
   String _buildCanonicalRequest(
     String method,
     String path,
     Map<String, String> headers,
   ) {
-    // 格式: Method\nPath\nQueryString\nCanonicalHeaders\n
-    return '$method\n$path\n\n\n';
+    // 1. HttpMethod 转小写
+    final httpMethod = method.toLowerCase();
+
+    // 2. UriPathname
+    final uriPathname = path;
+
+    // 3. HttpParameters (URL参数)
+    final httpParameters = '';
+
+    // 4. HttpHeaders (参与签名的头部，按key字典序排序)
+    // key 使用小写并 URL 编码，value 使用 URL 编码
+    final sortedHeaders = headers.entries.toList()
+      ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
+
+    final httpHeaders = sortedHeaders.map((e) {
+      final key = _urlEncode(e.key.toLowerCase());
+      final value = _urlEncode(e.value);
+      return '$key=$value';
+    }).join('&');
+
+    // 拼接: HttpMethod\nUriPathname\nHttpParameters\nHttpHeaders\n
+    return '$httpMethod\n$uriPathname\n$httpParameters\n$httpHeaders\n';
+  }
+
+  /// URL 编码（只编码必要的字符，保留字母数字和 -_.~）
+  String _urlEncode(String value) {
+    return Uri.encodeComponent(value);
   }
 
   @override
   Future<ApiResponse<List<Bucket>>> listBuckets() async {
     try {
-      final url = 'https://cos.${credential.region}.myqcloud.com/';
+      // 使用 service.cos.myqcloud.com 查询所有存储桶（不指定地域）
+      final url = 'https://service.cos.myqcloud.com/';
+      final host = 'service.cos.myqcloud.com';
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      final keyTime = '$now;${now + 3600}';
+      final end = now + 3600;
+      final keyTime = '$now;$end';
+
+      // 生成 GMT 格式的 Date 头部
+      final date = HttpDate.format(DateTime.now().toUtc());
+
+      // 生成签名时需要包含 Host 和 Date 头部（按字典序排序）
+      final headersForSign = {'date': date, 'host': host};
       final signature = _getSignature(
         'GET',
         '/',
-        {},
+        headersForSign,
         credential.secretId,
         credential.secretKey,
       );
 
+      // 生成 headerList 和 urlParamList 用于 Authorization（按字典序排序）
+      final headerList = 'date;host';
+      final urlParamList = '';
+
       final headers = {
         'Authorization':
-            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$now&q-key-time=$keyTime&q-header-list=&q-url-param-list=&q-signature=$signature',
+            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$keyTime&q-key-time=$keyTime&q-header-list=$headerList&q-url-param-list=$urlParamList&q-signature=$signature',
         'Content-Type': 'application/xml',
+        'Host': host,
+        'Date': date,
       };
 
       final response = await httpClient.get(url, headers: headers);
@@ -131,21 +206,27 @@ class TencentCosApi implements ICloudPlatformApi {
     String? marker,
   }) async {
     try {
+      final host = '$bucketName.cos.$region.myqcloud.com';
       final url =
-          'https://$bucketName.cos.$region.myqcloud.com/?prefix=$prefix&delimiter=$delimiter&max-keys=$maxKeys${marker != null ? '&marker=$marker' : ''}';
+          'https://$host/?prefix=$prefix&delimiter=$delimiter&max-keys=$maxKeys${marker != null ? '&marker=$marker' : ''}';
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      final keyTime = '$now;${now + 3600}';
+      final end = now + 3600;
+      final keyTime = '$now;$end';
+
+      // 生成签名时需要包含 Host 头部
+      final headersForSign = {'host': host};
       final signature = _getSignature(
         'GET',
         '/?prefix=$prefix&delimiter=$delimiter&max-keys=$maxKeys${marker != null ? '&marker=$marker' : ''}',
-        {},
+        headersForSign,
         credential.secretId,
         credential.secretKey,
       );
 
       final headers = {
         'Authorization':
-            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$now&q-key-time=$keyTime&q-header-list=&q-url-param-list=&q-signature=$signature',
+            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$keyTime&q-key-time=$keyTime&q-header-list=host&q-url-param-list=&q-signature=$signature',
+        'Host': host,
       };
 
       final response = await httpClient.get(url, headers: headers);
@@ -182,21 +263,27 @@ class TencentCosApi implements ICloudPlatformApi {
     void Function(int sent, int total)? onProgress,
   }) async {
     try {
-      final url = 'https://$bucketName.cos.$region.myqcloud.com/$objectKey';
+      final host = '$bucketName.cos.$region.myqcloud.com';
+      final url = 'https://$host/$objectKey';
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      final keyTime = '$now;${now + 3600}';
+      final end = now + 3600;
+      final keyTime = '$now;$end';
+
+      // 生成签名时需要包含 Host 头部
+      final headersForSign = {'host': host};
       final signature = _getSignature(
         'PUT',
         '/$objectKey',
-        {},
+        headersForSign,
         credential.secretId,
         credential.secretKey,
       );
 
       final headers = {
         'Authorization':
-            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$now&q-key-time=$keyTime&q-header-list=&q-url-param-list=&q-signature=$signature',
+            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$keyTime&q-key-time=$keyTime&q-header-list=host&q-url-param-list=&q-signature=$signature',
         'Content-Type': 'application/octet-stream',
+        'Host': host,
       };
 
       final response = await httpClient.put(
@@ -229,20 +316,26 @@ class TencentCosApi implements ICloudPlatformApi {
     void Function(int received, int total)? onProgress,
   }) async {
     try {
-      final url = 'https://$bucketName.cos.$region.myqcloud.com/$objectKey';
+      final host = '$bucketName.cos.$region.myqcloud.com';
+      final url = 'https://$host/$objectKey';
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      final keyTime = '$now;${now + 3600}';
+      final end = now + 3600;
+      final keyTime = '$now;$end';
+
+      // 生成签名时需要包含 Host 头部
+      final headersForSign = {'host': host};
       final signature = _getSignature(
         'GET',
         '/$objectKey',
-        {},
+        headersForSign,
         credential.secretId,
         credential.secretKey,
       );
 
       final headers = {
         'Authorization':
-            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$now&q-key-time=$keyTime&q-header-list=&q-url-param-list=&q-signature=$signature',
+            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$keyTime&q-key-time=$keyTime&q-header-list=host&q-url-param-list=&q-signature=$signature',
+        'Host': host,
       };
 
       final response = await httpClient.get(
@@ -273,20 +366,26 @@ class TencentCosApi implements ICloudPlatformApi {
     required String objectKey,
   }) async {
     try {
-      final url = 'https://$bucketName.cos.$region.myqcloud.com/$objectKey';
+      final host = '$bucketName.cos.$region.myqcloud.com';
+      final url = 'https://$host/$objectKey';
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      final keyTime = '$now;${now + 3600}';
+      final end = now + 3600;
+      final keyTime = '$now;$end';
+
+      // 生成签名时需要包含 Host 头部
+      final headersForSign = {'host': host};
       final signature = _getSignature(
         'DELETE',
         '/$objectKey',
-        {},
+        headersForSign,
         credential.secretId,
         credential.secretKey,
       );
 
       final headers = {
         'Authorization':
-            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$now&q-key-time=$keyTime&q-header-list=&q-url-param-list=&q-signature=$signature',
+            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$keyTime&q-key-time=$keyTime&q-header-list=host&q-url-param-list=&q-signature=$signature',
+        'Host': host,
       };
 
       final response = await httpClient.delete(url, headers: headers);
