@@ -161,6 +161,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
             child: Text('取消'),
           ),
           TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
             onPressed: () => Navigator.pop(context, true),
             child: Text('删除'),
           ),
@@ -168,15 +169,55 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       ),
     );
 
-    if (confirmed == true) {
-      logUi('User confirmed delete: ${obj.name}');
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('删除功能待实现')));
-      }
-    } else {
+    if (confirmed != true) {
       logUi('User cancelled delete: ${obj.name}');
+      return;
+    }
+
+    // 获取凭证并创建API
+    final credential = await _storage.getCredential(widget.platform);
+    if (credential == null) {
+      logError('No credential found for platform: ${widget.platform}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('删除失败：未找到凭证')),
+        );
+      }
+      return;
+    }
+
+    final api = _factory.createApi(widget.platform, credential: credential);
+    if (api == null) {
+      logError('Failed to create API for platform: ${widget.platform}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('删除失败：API创建失败')),
+        );
+      }
+      return;
+    }
+
+    logUi('Starting delete: ${obj.key}');
+    final result = await api.deleteObject(
+      bucketName: widget.bucket.name,
+      region: widget.bucket.region,
+      objectKey: obj.key,
+    );
+
+    if (mounted) {
+      if (result.success) {
+        logUi('Delete successful: ${obj.name}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('删除成功: ${obj.name}')),
+        );
+        // 刷新文件列表
+        _loadObjects();
+      } else {
+        logError('Delete failed: ${result.errorMessage}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('删除失败: ${result.errorMessage}')),
+        );
+      }
     }
   }
 
