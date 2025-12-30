@@ -186,6 +186,8 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     int received = 0;
     int total = obj.size > 0 ? obj.size : 1;
     double progress = 0.0;
+    // 捕获 StatefulBuilder 的 setState，用于更新对话框进度
+    void Function(VoidCallback fn)? dialogSetState;
 
     // 显示下载进度对话框（不阻塞下载）
     if (!mounted) return;
@@ -195,6 +197,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
+            dialogSetState = setState;
             return AlertDialog(
               title: Text('下载中'),
               content: Column(
@@ -225,8 +228,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       region: widget.bucket.region,
       objectKey: obj.key,
       onProgress: (r, t) {
-        if (!mounted) return;
-        setState(() {
+        dialogSetState?.call(() {
           received = r;
           total = t > 0 ? t : 1;
           progress = total > 0 ? r / total : 0.0;
@@ -386,6 +388,8 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     int sent = 0;
     int total = fileSize;
     double progress = 0.0;
+    // 捕获 StatefulBuilder 的 setState，用于更新对话框进度
+    void Function(VoidCallback fn)? dialogSetState;
 
     // 显示上传进度对话框（不阻塞上传）
     if (!mounted) return;
@@ -395,6 +399,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
+            dialogSetState = setState;
             return AlertDialog(
               title: Text('上传中'),
               content: Column(
@@ -430,8 +435,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         file: File(pickedFile.path!),
         chunkSize: 64 * 1024 * 1024, // 64MB 分块
         onProgress: (s, t) {
-          if (!mounted) return;
-          setState(() {
+          dialogSetState?.call(() {
             sent = s;
             total = t > 0 ? t : fileSize;
             progress = total > 0 ? s / total : 0.0;
@@ -464,11 +468,10 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           objectKey: objectKey,
           data: fileBytes,
           onProgress: (s, t) {
-            if (!mounted) return;
-            setState(() {
+            dialogSetState?.call(() {
               sent = s;
-              total = t;
-              progress = t > 0 ? s / t : 0.0;
+              total = t > 0 ? t : fileSize;
+              progress = total > 0 ? s / total : 0.0;
             });
           },
         );
