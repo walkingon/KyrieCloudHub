@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/platform_type.dart';
 import '../services/storage_service.dart';
+import '../utils/logger.dart';
 import 'login_dialog.dart';
 
 // ignore_for_file: library_private_types_in_public_api, use_build_context_synchronously
@@ -20,6 +21,7 @@ class _PlatformSelectionScreenState extends State<PlatformSelectionScreen> {
   @override
   void initState() {
     super.initState();
+    logUi('PlatformSelectionScreen initialized');
     _loadLoginStatus();
   }
 
@@ -51,6 +53,7 @@ class _PlatformSelectionScreenState extends State<PlatformSelectionScreen> {
                 if (isLoggedIn)
                   TextButton(
                     onPressed: () async {
+                      logUi('User tapped logout for: ${platform.displayName}');
                       final storage = Provider.of<StorageService>(
                         context,
                         listen: false,
@@ -64,18 +67,22 @@ class _PlatformSelectionScreenState extends State<PlatformSelectionScreen> {
             ),
             onTap: () async {
               if (!isLoggedIn) {
+                logUi('User selected platform: ${platform.displayName} - showing login dialog');
                 final result = await showDialog(
                   context: context,
                   builder: (context) => LoginDialog(platform: platform),
                 );
                 if (result == true) {
+                  logUi('User logged in successfully: ${platform.displayName}');
                   _loadLoginStatus();
                   if (mounted) {
                     Navigator.pop(context);
                   }
+                } else {
+                  logUi('User cancelled login for: ${platform.displayName}');
                 }
               } else {
-                // 直接登录
+                logUi('User selected already logged in platform: ${platform.displayName} - returning');
                 if (mounted) {
                   Navigator.pop(context);
                 }

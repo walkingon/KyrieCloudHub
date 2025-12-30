@@ -1,5 +1,5 @@
 import 'package:dio/dio.dart';
-import '../../utils/logger.dart' as logger;
+import '../../utils/logger.dart';
 
 class HttpClient {
   late final Dio _dio;
@@ -27,7 +27,7 @@ class HttpClient {
     void Function(int, int)? onReceiveProgress,
     CancelToken? cancelToken,
   }) async {
-    logger.log('[HTTP GET] Request: $path, params: $queryParameters');
+    logNetworkRequest('GET', path, queryParameters);
     try {
       final response = await _dio.get(
         path,
@@ -52,7 +52,7 @@ class HttpClient {
     void Function(int, int)? onSendProgress,
     CancelToken? cancelToken,
   }) async {
-    logger.log('[HTTP POST] Request: $path, data: $data');
+    logNetworkRequest('POST', path, {'data': data, 'queryParams': queryParameters});
     try {
       final response = await _dio.post(
         path,
@@ -78,7 +78,7 @@ class HttpClient {
     void Function(int, int)? onSendProgress,
     CancelToken? cancelToken,
   }) async {
-    logger.log('[HTTP PUT] Request: $path, data: $data');
+    logNetworkRequest('PUT', path, {'data': data, 'queryParams': queryParameters});
     try {
       final response = await _dio.put(
         path,
@@ -103,7 +103,7 @@ class HttpClient {
     Map<String, dynamic>? headers,
     CancelToken? cancelToken,
   }) async {
-    logger.log('[HTTP DELETE] Request: $path, data: $data');
+    logNetworkRequest('DELETE', path, {'data': data, 'queryParams': queryParameters});
     try {
       final response = await _dio.delete(
         path,
@@ -127,7 +127,7 @@ class HttpClient {
     Map<String, dynamic>? headers,
     CancelToken? cancelToken,
   }) async {
-    logger.log('[HTTP DOWNLOAD] Request: $url -> $savePath');
+    logNetworkRequest('DOWNLOAD', url, {'savePath': savePath.toString()});
     try {
       final response = await _dio.download(
         url,
@@ -136,7 +136,7 @@ class HttpClient {
         options: Options(headers: headers),
         cancelToken: cancelToken,
       );
-      logger.log('[HTTP DOWNLOAD] Completed: $url, status: ${response.statusCode}');
+      logNetworkResponse(url, response.statusCode ?? 0, 'Download completed');
       return response;
     } on DioException catch (e) {
       _logError('DOWNLOAD', url, e);
@@ -145,25 +145,23 @@ class HttpClient {
   }
 
   void _logResponse(String method, String path, Response response) {
-    logger.log(
-      '[HTTP $method] Response: $path, status: ${response.statusCode}, '
-      'data: ${response.data?.toString().substring(0, 500)}',
-    );
+    final dataStr = response.data?.toString() ?? '';
+    final truncatedData = dataStr.length > 500 ? '${dataStr.substring(0, 500)}...' : dataStr;
+    logNetworkResponse(path, response.statusCode ?? 0, truncatedData);
   }
 
   void _logError(String method, String path, DioException e) {
-    String errorInfo = '[HTTP $method] Error: $path, type: ${e.type}, message: ${e.message}';
+    String errorInfo = 'type: ${e.type}, message: ${e.message}';
 
-    // 打印状态码
     if (e.response != null) {
       errorInfo += ', status: ${e.response!.statusCode}';
-      // 打印原始响应数据（用于调试）
       if (e.response!.data != null) {
         final dataStr = e.response!.data.toString();
-        errorInfo += '\n  Response: ${dataStr.substring(0, dataStr.length < 500 ? dataStr.length : 500)}';
+        final truncated = dataStr.length > 500 ? '${dataStr.substring(0, 500)}...' : dataStr;
+        errorInfo += ', response: $truncated';
       }
     }
 
-    logger.log(errorInfo);
+    logNetworkError(path, errorInfo);
   }
 }

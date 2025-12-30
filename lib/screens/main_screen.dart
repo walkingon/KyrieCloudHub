@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../models/platform_type.dart';
 import '../services/cloud_platform_factory.dart';
 import '../services/storage_service.dart';
+import '../utils/logger.dart';
 import 'platform_selection_screen.dart';
 import 'transfer_queue_screen.dart';
 import 'settings_screen.dart';
@@ -25,6 +26,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
+    logUi('MainScreen initialized');
     _loadLastPlatform();
   }
 
@@ -35,12 +37,16 @@ class _MainScreenState extends State<MainScreen> {
       setState(() {
         _currentPlatform = lastPlatform;
       });
+      logUi('Auto-loaded last platform: ${lastPlatform.displayName}');
       _loadBuckets();
+    } else {
+      logUi('No last platform found, showing empty state');
     }
   }
 
   Future<void> _loadBuckets() async {
     if (_currentPlatform == null) return;
+    logUi('Loading buckets for platform: ${_currentPlatform!.displayName}');
     final factory = Provider.of<CloudPlatformFactory>(context, listen: false);
     final api = factory.createApi(_currentPlatform!);
     if (api != null) {
@@ -49,6 +55,9 @@ class _MainScreenState extends State<MainScreen> {
         setState(() {
           _buckets = result.data ?? [];
         });
+        logUi('Loaded ${_buckets.length} buckets');
+      } else {
+        logError('Failed to load buckets: ${result.errorMessage}');
       }
     }
   }
@@ -75,6 +84,7 @@ class _MainScreenState extends State<MainScreen> {
               leading: Icon(Icons.swap_horiz),
               title: Text('平台切换'),
               onTap: () {
+                logUi('User tapped: 平台切换');
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -87,6 +97,7 @@ class _MainScreenState extends State<MainScreen> {
               leading: Icon(Icons.queue),
               title: Text('传输队列'),
               onTap: () {
+                logUi('User tapped: 传输队列');
                 Navigator.push(
                   context,
                   MaterialPageRoute(
@@ -99,6 +110,7 @@ class _MainScreenState extends State<MainScreen> {
               leading: Icon(Icons.settings),
               title: Text('设置'),
               onTap: () {
+                logUi('User tapped: 设置');
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => SettingsScreen()),
@@ -109,6 +121,7 @@ class _MainScreenState extends State<MainScreen> {
               leading: Icon(Icons.info),
               title: Text('关于'),
               onTap: () {
+                logUi('User tapped: 关于');
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => AboutScreen()),
@@ -122,6 +135,7 @@ class _MainScreenState extends State<MainScreen> {
           ? Center(
               child: ElevatedButton(
                 onPressed: () {
+                  logUi('User tapped: 去选择平台');
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -139,6 +153,7 @@ class _MainScreenState extends State<MainScreen> {
                 return ListTile(
                   title: Text(bucket.name),
                   onTap: () {
+                    logUi('User tapped bucket: ${bucket.name}');
                     Navigator.push(
                       context,
                       MaterialPageRoute(

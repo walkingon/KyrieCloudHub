@@ -60,23 +60,6 @@ class TencentCosApi implements ICloudPlatformApi {
     return digest.toString();
   }
 
-  /// HMAC-SHA1 计算，返回字节数组（密钥为字符串）
-  List<int> _hmacSha1Bytes(String key, String data) {
-    final keyBytes = utf8.encode(key);
-    final dataBytes = utf8.encode(data);
-    final hmac = Hmac(sha1, keyBytes);
-    final digest = hmac.convert(dataBytes);
-    return digest.bytes;
-  }
-
-  /// HMAC-SHA1 计算，返回字节数组（密钥为字节数组）
-  List<int> _hmacSha1BytesRaw(List<int> keyBytes, String data) {
-    final dataBytes = utf8.encode(data);
-    final hmac = Hmac(sha1, keyBytes);
-    final digest = hmac.convert(dataBytes);
-    return digest.bytes;
-  }
-
   /// HMAC-SHA1 计算，SignKey 为十六进制字符串（作为字符串使用，非字节）
   /// 腾讯云文档说明：SignKey 为密钥（字符串形式，非原始二进制）
   String _hmacSha1WithHexKey(String hexKey, String data) {
@@ -86,16 +69,6 @@ class TencentCosApi implements ICloudPlatformApi {
     final hmac = Hmac(sha1, keyBytes);
     final digest = hmac.convert(dataBytes);
     return digest.toString();
-  }
-
-  /// 十六进制字符串转字节数组
-  List<int> _hexToBytes(String hex) {
-    final bytes = <int>[];
-    for (var i = 0; i < hex.length; i += 2) {
-      final byte = int.parse(hex.substring(i, i + 2), radix: 16);
-      bytes.add(byte);
-    }
-    return bytes;
   }
 
   /// 构建规范请求 (CanonicalRequest)
@@ -427,12 +400,14 @@ class TencentCosApi implements ICloudPlatformApi {
 
   /// 解析腾讯云API错误响应
   /// 腾讯云COS错误响应格式（XML）:
+  /// ```xml
   /// <Error>
   ///   <Code>AuthFailure</Code>
   ///   <Message>签名失败...</Message>
   ///   <Resource>cos.ap-beijing.myqcloud.com/</Resource>
   ///   <RequestId>xxx</RequestId>
   /// </Error>
+  /// ```
   String _parseTencentCloudError(DioException e) {
     final response = e.response;
     if (response == null) {

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'screens/main_screen.dart';
@@ -6,8 +7,23 @@ import 'services/storage_service.dart';
 import 'services/api/http_client.dart';
 import 'utils/logger.dart';
 
-void main() {
-  log('Starting KyrieCloudHub app');
+void main() async {
+  // 初始化日志系统
+  await logger.init();
+
+  // 设置全局错误捕获
+  FlutterError.onError = (details) {
+    logError('Flutter Error: ${details.exception}', details.stack);
+  };
+
+  PlatformDispatcher.instance.onError = (error, stack) {
+    logError('Platform Error: $error', stack);
+    return true; // 阻止应用崩溃
+  };
+
+  if (kDebugMode) {
+    log('Starting KyrieCloudHub app');
+  }
   runApp(const MyApp());
 }
 

@@ -5,6 +5,7 @@ import '../models/object_file.dart';
 import '../models/platform_type.dart';
 import '../services/cloud_platform_factory.dart';
 import '../services/storage_service.dart';
+import '../utils/logger.dart';
 
 // ignore_for_file: library_private_types_in_public_api
 
@@ -31,6 +32,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   @override
   void initState() {
     super.initState();
+    logUi('BucketObjectsScreen initialized for bucket: ${widget.bucket.name}');
     _storage = Provider.of<StorageService>(context, listen: false);
     _factory = Provider.of<CloudPlatformFactory>(context, listen: false);
     _loadObjects();
@@ -41,6 +43,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       _isLoading = true;
     });
 
+    logUi('Loading objects for bucket: ${widget.bucket.name}');
     final credential = await _storage.getCredential(widget.platform);
     if (credential != null) {
       final api = _factory.createApi(widget.platform, credential: credential);
@@ -55,6 +58,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
               _objects = result.data?.objects ?? [];
             });
           }
+          logUi('Loaded ${_objects.length} objects from bucket: ${widget.bucket.name}');
+        } else {
+          logError('Failed to load objects: ${result.errorMessage}');
         }
       }
     }
@@ -86,6 +92,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                   subtitle: Text(obj.lastModified?.toString() ?? ''),
                   onTap: () {
                     // 显示操作选项
+                    logUi('User tapped object: ${obj.name}');
                     _showObjectActions(obj);
                   },
                 );
@@ -99,6 +106,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   }
 
   void _showObjectActions(ObjectFile obj) {
+    logUi('Showing actions for object: ${obj.name}');
     showModalBottomSheet(
       context: context,
       builder: (context) {
@@ -110,6 +118,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
               title: Text('下载'),
               onTap: () {
                 Navigator.pop(context);
+                logUi('User selected action: 下载 for ${obj.name}');
                 _downloadObject(obj);
               },
             ),
@@ -118,6 +127,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
               title: Text('删除'),
               onTap: () {
                 Navigator.pop(context);
+                logUi('User selected action: 删除 for ${obj.name}');
                 _deleteObject(obj);
               },
             ),
@@ -128,13 +138,14 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   }
 
   Future<void> _downloadObject(ObjectFile obj) async {
-    // 实现下载逻辑
+    logUi('Starting download for: ${obj.name}');
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('下载功能待实现')));
   }
 
   Future<void> _deleteObject(ObjectFile obj) async {
+    logUi('Delete confirmation dialog shown for: ${obj.name}');
     final confirmed = await showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -154,17 +165,19 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     );
 
     if (confirmed == true) {
-      // 实现删除逻辑
+      logUi('User confirmed delete: ${obj.name}');
       if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('删除功能待实现')));
       }
+    } else {
+      logUi('User cancelled delete: ${obj.name}');
     }
   }
 
   Future<void> _uploadFile() async {
-    // 实现上传逻辑
+    logUi('User tapped upload button');
     if (mounted) {
       ScaffoldMessenger.of(
         context,

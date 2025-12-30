@@ -4,6 +4,7 @@ import '../models/platform_credential.dart';
 import '../models/platform_type.dart';
 import '../services/cloud_platform_factory.dart';
 import '../services/storage_service.dart';
+import '../utils/logger.dart';
 
 // ignore_for_file: library_private_types_in_public_api, use_build_context_synchronously
 
@@ -20,6 +21,12 @@ class _LoginDialogState extends State<LoginDialog> {
   final _secretIdController = TextEditingController();
   final _secretKeyController = TextEditingController();
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    logUi('LoginDialog initialized for: ${widget.platform.displayName}');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -40,7 +47,13 @@ class _LoginDialogState extends State<LoginDialog> {
         ],
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: Text('取消')),
+        TextButton(
+          onPressed: () {
+            logUi('User cancelled login for: ${widget.platform.displayName}');
+            Navigator.pop(context);
+          },
+          child: Text('取消'),
+        ),
         ElevatedButton(
           onPressed: _isLoading ? null : _login,
           child: _isLoading ? CircularProgressIndicator() : Text('登录'),
@@ -54,6 +67,8 @@ class _LoginDialogState extends State<LoginDialog> {
       _isLoading = true;
     });
 
+    logUi('Starting login for: ${widget.platform.displayName}');
+
     final credential = PlatformCredential(
       platformType: widget.platform,
       secretId: _secretIdController.text,
@@ -66,6 +81,7 @@ class _LoginDialogState extends State<LoginDialog> {
     if (api != null) {
       final result = await api.listBuckets();
       if (result.success) {
+        logUi('Login successful for: ${widget.platform.displayName}');
         final storage = Provider.of<StorageService>(context, listen: false);
         await storage.saveCredential(credential);
         await storage.saveLastPlatform(widget.platform);
@@ -73,12 +89,15 @@ class _LoginDialogState extends State<LoginDialog> {
           Navigator.pop(context, true);
         }
       } else {
+        logError('Login failed for: ${widget.platform.displayName} - ${result.errorMessage}');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('登录失败: ${result.errorMessage}')),
           );
         }
       }
+    } else {
+      logError('Failed to create API for: ${widget.platform.displayName}');
     }
 
     if (mounted) {
