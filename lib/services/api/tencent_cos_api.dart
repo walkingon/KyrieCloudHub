@@ -43,7 +43,12 @@ class TencentCosApi implements ICloudPlatformApi {
     final signKey = _hmacSha1(secretKey, keyTime);
 
     // 2. 计算 CanonicalRequest 的 SHA1 哈希
-    final canonicalRequest = _buildCanonicalRequest(method, path, headers, queryParams: queryParams);
+    final canonicalRequest = _buildCanonicalRequest(
+      method,
+      path,
+      headers,
+      queryParams: queryParams,
+    );
     final sha1CanonicalRequest = sha1.convert(utf8.encode(canonicalRequest));
 
     // 3. 拼接 StringToSign = "sha1\n{q-sign-time}\n{SHA1(CanonicalRequest)}\n"
@@ -100,11 +105,13 @@ class TencentCosApi implements ICloudPlatformApi {
 
       // 生成 HttpParameters: key1=value1&key2=value2
       // 注意：等号不编码，这是腾讯云的要求
-      httpParameters = sortedParams.map((e) {
-        final key = Uri.encodeComponent(e.key.toLowerCase());
-        final value = Uri.encodeComponent(e.value);
-        return '$key=$value';
-      }).join('&');
+      httpParameters = sortedParams
+          .map((e) {
+            final key = Uri.encodeComponent(e.key.toLowerCase());
+            final value = Uri.encodeComponent(e.value);
+            return '$key=$value';
+          })
+          .join('&');
     }
 
     // 4. HttpHeaders (参与签名的头部，按key字典序排序)
@@ -112,11 +119,13 @@ class TencentCosApi implements ICloudPlatformApi {
     final sortedHeaders = headers.entries.toList()
       ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
 
-    final httpHeaders = sortedHeaders.map((e) {
-      final key = _urlEncode(e.key.toLowerCase());
-      final value = _urlEncode(e.value);
-      return '$key=$value';
-    }).join('&');
+    final httpHeaders = sortedHeaders
+        .map((e) {
+          final key = _urlEncode(e.key.toLowerCase());
+          final value = _urlEncode(e.value);
+          return '$key=$value';
+        })
+        .join('&');
 
     // 拼接: HttpMethod\nUriPathname\nHttpParameters\nHttpHeaders\n
     return '$httpMethod\n$uriPathname\n$httpParameters\n$httpHeaders\n';
@@ -173,9 +182,8 @@ class TencentCosApi implements ICloudPlatformApi {
       log('[TencentCOS] 响应状态码: ${response.statusCode}');
 
       if (response.statusCode == 200) {
-        // 记录原始响应数据
         final responseData = response.data?.toString() ?? '';
-        log('[TencentCOS] 原始响应数据: $responseData');
+        //log('[TencentCOS] 原始响应数据: $responseData');
 
         // 解析XML响应，提取存储桶列表
         final buckets = _parseBucketsFromXml(responseData);
@@ -183,7 +191,9 @@ class TencentCosApi implements ICloudPlatformApi {
         return ApiResponse.success(buckets);
       } else {
         final errorData = response.data?.toString() ?? '';
-        logError('[TencentCOS] 查询存储桶失败, 状态码: ${response.statusCode}, 响应: $errorData');
+        logError(
+          '[TencentCOS] 查询存储桶失败, 状态码: ${response.statusCode}, 响应: $errorData',
+        );
         return ApiResponse.error(
           'Failed to list buckets, status: ${response.statusCode}',
           statusCode: response.statusCode,
@@ -204,14 +214,19 @@ class TencentCosApi implements ICloudPlatformApi {
 
     // 使用 xml 包解析
     final document = XmlDocument.parse(xml);
-    final bucketsElement = document.findElements('ListAllMyBucketsResult').first;
+    final bucketsElement = document
+        .findElements('ListAllMyBucketsResult')
+        .first;
     final bucketsList = bucketsElement.findElements('Buckets').first;
     final bucketElements = bucketsList.findElements('Bucket');
 
     for (final bucketElement in bucketElements) {
       final name = bucketElement.findElements('Name').first.innerText;
       final region = bucketElement.findElements('Location').first.innerText;
-      final creationDateStr = bucketElement.findElements('CreationDate').first.innerText;
+      final creationDateStr = bucketElement
+          .findElements('CreationDate')
+          .first
+          .innerText;
 
       DateTime? creationDate;
       try {
@@ -220,11 +235,9 @@ class TencentCosApi implements ICloudPlatformApi {
         creationDate = null;
       }
 
-      buckets.add(Bucket(
-        name: name,
-        region: region,
-        creationDate: creationDate,
-      ));
+      buckets.add(
+        Bucket(name: name, region: region, creationDate: creationDate),
+      );
     }
 
     return buckets;
@@ -243,13 +256,19 @@ class TencentCosApi implements ICloudPlatformApi {
       final host = '$bucketName.cos.$region.myqcloud.com';
 
       // 构建查询参数
-      final queryParams = <String, String>{'prefix': prefix, 'delimiter': delimiter, 'max-keys': maxKeys.toString()};
+      final queryParams = <String, String>{
+        'prefix': prefix,
+        'delimiter': delimiter,
+        'max-keys': maxKeys.toString(),
+      };
       if (marker != null) {
         queryParams['marker'] = marker;
       }
 
       // 构建URL
-      final queryString = queryParams.entries.map((e) => '${e.key}=${Uri.encodeComponent(e.value)}').join('&');
+      final queryString = queryParams.entries
+          .map((e) => '${e.key}=${Uri.encodeComponent(e.value)}')
+          .join('&');
       final url = 'https://$host/?$queryString';
 
       log('[TencentCOS] 开始查询对象列表, URL: $url');
@@ -270,10 +289,14 @@ class TencentCosApi implements ICloudPlatformApi {
 
       // 生成 headerList 和 urlParamList（按字典序排序）
       final headerList = 'date;host';
-      final sortedParamKeys = queryParams.keys.map((k) => _urlEncode(k.toLowerCase())).toList()..sort();
+      final sortedParamKeys =
+          queryParams.keys.map((k) => _urlEncode(k.toLowerCase())).toList()
+            ..sort();
       final urlParamList = sortedParamKeys.join(';');
 
-      log('[TencentCOS] 签名生成完成, HeaderList: $headerList, UrlParamList: $urlParamList');
+      log(
+        '[TencentCOS] 签名生成完成, HeaderList: $headerList, UrlParamList: $urlParamList',
+      );
 
       final headers = {
         'Authorization':
@@ -289,12 +312,14 @@ class TencentCosApi implements ICloudPlatformApi {
 
       if (response.statusCode == 200) {
         final responseData = response.data?.toString() ?? '';
-        log('[TencentCOS] 原始响应数据: $responseData');
+        //log('[TencentCOS] 原始响应数据: $responseData');
         final result = _parseObjectsFromXml(responseData);
         return ApiResponse.success(result);
       } else {
         final errorData = response.data?.toString() ?? '';
-        logError('[TencentCOS] 查询对象失败, 状态码: ${response.statusCode}, 响应: $errorData');
+        logError(
+          '[TencentCOS] 查询对象失败, 状态码: ${response.statusCode}, 响应: $errorData',
+        );
         return ApiResponse.error(
           'Failed to list objects',
           statusCode: response.statusCode,
@@ -320,7 +345,10 @@ class TencentCosApi implements ICloudPlatformApi {
 
     for (final content in contentsElements) {
       final key = content.findElements('Key').first.innerText;
-      final lastModifiedStr = content.findElements('LastModified').first.innerText;
+      final lastModifiedStr = content
+          .findElements('LastModified')
+          .first
+          .innerText;
       final sizeStr = content.findElements('Size').first.innerText;
       final etag = content.findElements('ETag').first.innerText;
 
@@ -344,14 +372,16 @@ class TencentCosApi implements ICloudPlatformApi {
       // 判断是文件夹还是文件
       final isFolder = key.endsWith('/');
 
-      objects.add(ObjectFile(
-        key: key,
-        name: name,
-        size: size,
-        lastModified: lastModified,
-        etag: etag,
-        type: isFolder ? ObjectType.folder : ObjectType.file,
-      ));
+      objects.add(
+        ObjectFile(
+          key: key,
+          name: name,
+          size: size,
+          lastModified: lastModified,
+          etag: etag,
+          type: isFolder ? ObjectType.folder : ObjectType.file,
+        ),
+      );
     }
 
     return ListObjectsResult(objects: objects);
@@ -568,7 +598,10 @@ class TencentCosApi implements ICloudPlatformApi {
         final date = HttpDate.format(DateTime.now().toUtc());
         // 注意：Date 头部保持原始格式，不要转小写；Host 需要转小写
         // 对于 uploadPart 请求，还需要包含 content-length 和 content-md5
-        final headersForSign = {'host': '$bucketName.cos.$region.myqcloud.com'.toLowerCase(), 'date': date};
+        final headersForSign = {
+          'host': '$bucketName.cos.$region.myqcloud.com'.toLowerCase(),
+          'date': date,
+        };
         return _getSignature(
           method,
           path,
@@ -580,21 +613,25 @@ class TencentCosApi implements ICloudPlatformApi {
       };
 
       // 设置签名回调（带额外头部，用于 uploadPart）
-      manager.getSignatureWithHeaders = (method, path, extraHeaders, {queryParams}) async {
-        final date = HttpDate.format(DateTime.now().toUtc());
-        // 基础头部
-        final headersForSign = {'host': '$bucketName.cos.$region.myqcloud.com'.toLowerCase(), 'date': date};
-        // 合并额外头部
-        headersForSign.addAll(extraHeaders);
-        return _getSignature(
-          method,
-          path,
-          headersForSign,
-          queryParams: queryParams,
-          secretId: credential.secretId,
-          secretKey: credential.secretKey,
-        );
-      };
+      manager.getSignatureWithHeaders =
+          (method, path, extraHeaders, {queryParams}) async {
+            final date = HttpDate.format(DateTime.now().toUtc());
+            // 基础头部
+            final headersForSign = {
+              'host': '$bucketName.cos.$region.myqcloud.com'.toLowerCase(),
+              'date': date,
+            };
+            // 合并额外头部
+            headersForSign.addAll(extraHeaders);
+            return _getSignature(
+              method,
+              path,
+              headersForSign,
+              queryParams: queryParams,
+              secretId: credential.secretId,
+              secretKey: credential.secretKey,
+            );
+          };
 
       // 设置状态回调
       if (onStatusChanged != null) {
