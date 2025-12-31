@@ -52,6 +52,7 @@ class HttpClient {
     Map<String, dynamic>? headers,
     void Function(int, int)? onSendProgress,
     CancelToken? cancelToken,
+    ResponseType responseType = ResponseType.plain,
   }) async {
     logNetworkRequest('POST', path, {'data': data, 'queryParams': queryParameters});
     try {
@@ -59,7 +60,7 @@ class HttpClient {
         path,
         data: data,
         queryParameters: queryParameters,
-        options: Options(headers: headers),
+        options: Options(headers: headers, responseType: responseType),
         onSendProgress: onSendProgress,
         cancelToken: cancelToken,
       );

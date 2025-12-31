@@ -829,6 +829,7 @@ class AliyunOssApi implements ICloudPlatformApi {
         bucketName: bucketName,
         objectKey: objectKey,
         extraHeaders: {'Content-Type': 'application/xml'},
+        queryParams: {'uploads': ''},
       );
 
       log('[AliyunOSS] 初始化分块上传...');
@@ -841,12 +842,27 @@ class AliyunOssApi implements ICloudPlatformApi {
         );
       }
 
-      // 解析UploadId
-      final responseData = initResponse.data?.toString() ?? '';
+      // 解析UploadId - Dio使用ResponseType.plain时data可能是List<int>
+      String responseData;
+      if (initResponse.data is List<int>) {
+        responseData = utf8.decode(initResponse.data as List<int>);
+      } else {
+        responseData = initResponse.data?.toString() ?? '';
+      }
+      log('[AliyunOSS] 响应数据: $responseData');
+
       String? uploadId;
       try {
         final document = XmlDocument.parse(responseData);
-        uploadId = document.findElements('UploadId').first.innerText;
+        // 使用 findAllElements 递归查找所有匹配的元素
+        final uploadIdElements = document.findAllElements('UploadId');
+        if (uploadIdElements.isNotEmpty) {
+          uploadId = uploadIdElements.first.innerText;
+        } else {
+          // 备选方案：尝试从根元素开始查找
+          final root = document.rootElement;
+          uploadId = root.getElement('UploadId')?.innerText;
+        }
       } catch (e) {
         logError('[AliyunOSS] 解析UploadId失败: $e');
         return ApiResponse.error('Failed to parse UploadId');
@@ -959,7 +975,7 @@ class AliyunOssApi implements ICloudPlatformApi {
           'Content-Type': 'application/xml',
           'Content-MD5': completeMd5Str,
         },
-        queryParams: {'uploadId': uploadId},
+        queryParams: {'uploadId': uploadId!},
       );
 
       final completeResponse = await httpClient.post(
