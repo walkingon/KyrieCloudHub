@@ -550,7 +550,7 @@ class AliyunOssApi implements ICloudPlatformApi {
 
       if (response.statusCode == 200) {
         final responseData = response.data?.toString() ?? '';
-        final result = _parseObjectsFromXml(responseData);
+        final result = _parseObjectsFromXml(responseData, prefix: prefix);
         return ApiResponse.success(result);
       } else {
         final errorData = response.data?.toString() ?? '';
@@ -572,7 +572,7 @@ class AliyunOssApi implements ICloudPlatformApi {
     }
   }
 
-  ListObjectsResult _parseObjectsFromXml(String xml) {
+  ListObjectsResult _parseObjectsFromXml(String xml, {String prefix = ''}) {
     final objects = <ObjectFile>[];
     bool isTruncated = false;
     String? nextMarker;
@@ -603,6 +603,13 @@ class AliyunOssApi implements ICloudPlatformApi {
 
       for (final content in contentsElements) {
         final key = content.findElements('Key').first.innerText;
+
+        // 过滤掉当前目录本身（避免无限递归）
+        // 如果 key 等于当前 prefix，说明是当前目录的"自引用"，需要过滤掉
+        if (key == prefix) {
+          continue;
+        }
+
         final lastModifiedStr = content
             .findElements('LastModified')
             .first
@@ -638,6 +645,35 @@ class AliyunOssApi implements ICloudPlatformApi {
             lastModified: lastModified,
             etag: etag.replaceAll('"', ''),
             type: isFolder ? ObjectType.folder : ObjectType.file,
+          ),
+        );
+      }
+
+      // 解析 CommonPrefixes（文件夹/前缀）
+      // 当使用 delimiter=/ 时，文件夹会出现在 CommonPrefixes 中
+      final commonPrefixesElements = resultElement.findElements('CommonPrefixes');
+      for (final prefixElem in commonPrefixesElements) {
+        final key = prefixElem.findElements('Prefix').first.innerText;
+
+        // 过滤掉当前目录本身（避免无限递归）
+        // 如果 key 等于当前 prefix，说明是当前目录的"自引用"，需要过滤掉
+        if (key == prefix) {
+          continue;
+        }
+
+        // 从 key 中提取文件夹名称（去掉末尾的 /）
+        final name = key.endsWith('/')
+            ? key.substring(0, key.length - 1).split('/').where((e) => e.isNotEmpty).lastOrNull ?? key
+            : key.split('/').where((e) => e.isNotEmpty).lastOrNull ?? key;
+
+        objects.add(
+          ObjectFile(
+            key: key,
+            name: name,
+            size: 0,
+            lastModified: null,
+            etag: '',
+            type: ObjectType.folder,
           ),
         );
       }

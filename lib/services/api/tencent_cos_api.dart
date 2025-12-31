@@ -365,7 +365,7 @@ class TencentCosApi implements ICloudPlatformApi {
       if (response.statusCode == 200) {
         final responseData = response.data?.toString() ?? '';
         //log('[TencentCOS] 原始响应数据: $responseData');
-        final result = _parseObjectsFromXml(responseData);
+        final result = _parseObjectsFromXml(responseData, prefix: prefix);
         return ApiResponse.success(result);
       } else {
         final errorData = response.data?.toString() ?? '';
@@ -390,7 +390,7 @@ class TencentCosApi implements ICloudPlatformApi {
     }
   }
 
-  ListObjectsResult _parseObjectsFromXml(String xml) {
+  ListObjectsResult _parseObjectsFromXml(String xml, {String prefix = ''}) {
     // 使用 xml 包解析
     final document = XmlDocument.parse(xml);
     final resultElement = document.findElements('ListBucketResult').first;
@@ -420,6 +420,12 @@ class TencentCosApi implements ICloudPlatformApi {
 
     for (final content in contentsElements) {
       final key = content.findElements('Key').first.innerText;
+
+      // 过滤掉当前目录本身（避免无限递归）
+      if (key == prefix) {
+        continue;
+      }
+
       final lastModifiedStr = content
           .findElements('LastModified')
           .first
@@ -455,6 +461,34 @@ class TencentCosApi implements ICloudPlatformApi {
           lastModified: lastModified,
           etag: etag,
           type: isFolder ? ObjectType.folder : ObjectType.file,
+        ),
+      );
+    }
+
+    // 解析 CommonPrefixes（文件夹/前缀）
+    // 当使用 delimiter=/ 时，文件夹会出现在 CommonPrefixes 中
+    final commonPrefixesElements = resultElement.findElements('CommonPrefixes');
+    for (final prefixElem in commonPrefixesElements) {
+      final key = prefixElem.findElements('Prefix').first.innerText;
+
+      // 过滤掉当前目录本身（避免无限递归）
+      if (key == prefix) {
+        continue;
+      }
+
+      // 从 key 中提取文件夹名称（去掉末尾的 /）
+      final name = key.endsWith('/')
+          ? key.substring(0, key.length - 1).split('/').where((e) => e.isNotEmpty).lastOrNull ?? key
+          : key.split('/').where((e) => e.isNotEmpty).lastOrNull ?? key;
+
+      objects.add(
+        ObjectFile(
+          key: key,
+          name: name,
+          size: 0,
+          lastModified: null,
+          etag: '',
+          type: ObjectType.folder,
         ),
       );
     }

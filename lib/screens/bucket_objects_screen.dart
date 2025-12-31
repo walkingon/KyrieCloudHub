@@ -289,7 +289,8 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       }
 
       final isLast = i == segments.length - 1;
-      final prefix = i == 0 ? '' : _buildPrefixForSegment(i);
+      // 构建到当前 segment 的前缀路径：segments[0..i] + '/'
+      final prefix = '${segments.sublist(0, i + 1).join('/')}/';
 
       chips.add(
         ActionChip(
@@ -307,11 +308,6 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     }
 
     return chips;
-  }
-
-  String _buildPrefixForSegment(int index) {
-    final parts = _pathSegments.take(index + 1).toList();
-    return '${parts.join('/')}/';
   }
 
   void _navigateToRoot() {
