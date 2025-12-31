@@ -34,8 +34,9 @@ class Logger {
     if (_initialized) return;
 
     if (kDebugMode) {
-      final directory = await getApplicationDocumentsDirectory();
+      final directory = await getApplicationSupportDirectory();
       _logFilePath = '${directory.path}/$_logFileName';
+      print('Log file path: $_logFilePath');
       _logFile = File(_logFilePath!);
 
       // 同步清理旧日志（使用同步方法确保立即可用）
