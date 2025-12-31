@@ -1116,10 +1116,126 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     );
   }
 
-  /// 重命名处理（留空）
+  /// 重命名处理
   void _handleRename(ObjectFile obj) {
-    // TODO: 实现重命名逻辑
-    logUi('Rename not implemented yet for: ${obj.name}');
+    logUi('User selected action: 重命名 for ${obj.name}');
+    _showRenameDialog(obj);
+  }
+
+  /// 显示重命名对话框
+  void _showRenameDialog(ObjectFile obj) {
+    final isFolder = obj.type == ObjectType.folder;
+    final TextEditingController controller = TextEditingController(text: obj.name);
+    final formKey = GlobalKey<FormState>();
+    String? errorText;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text(isFolder ? '重命名文件夹' : '重命名文件'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: controller,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    labelText: isFolder ? '文件夹名称' : '文件名称',
+                    hintText: '请输入新名称',
+                    errorText: errorText,
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return '请输入名称';
+                    }
+                    if (value.contains('/') || value.contains('\\')) {
+                      return '名称不能包含 / 或 \\';
+                    }
+                    return null;
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('取消'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (!(formKey.currentState?.validate() ?? false)) return;
+
+                final newName = controller.text.trim();
+
+                // 检查名称是否未改变
+                if (newName == obj.name) {
+                  Navigator.pop(context);
+                  return;
+                }
+
+                // 检查是否已存在同名文件/文件夹
+                if (_objects.any((o) => o.name == newName)) {
+                  setState(() {
+                    errorText = isFolder ? '文件夹已存在' : '文件已存在';
+                  });
+                  return;
+                }
+
+                Navigator.pop(context);
+                await _renameObject(obj, newName);
+              },
+              child: Text('确定'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 执行重命名操作
+  Future<void> _renameObject(ObjectFile obj, String newName) async {
+    logUi('Renaming object: ${obj.name} -> $newName');
+
+    // 获取凭证并创建API
+    final credential = await _storage.getCredential(widget.platform);
+    if (credential == null) {
+      _showErrorSnackBar('未找到登录凭证');
+      return;
+    }
+
+    final api = _factory.createApi(widget.platform, credential: credential);
+    if (api == null) {
+      _showErrorSnackBar('API创建失败');
+      return;
+    }
+
+    setState(() {
+      _loadingState = LoadingState.loading;
+    });
+
+    final result = await api.renameObject(
+      bucketName: widget.bucket.name,
+      region: widget.bucket.region,
+      sourceKey: obj.key,
+      newName: newName,
+      prefix: _currentPrefix,
+    );
+
+    if (!mounted) return;
+
+    if (result.success) {
+      logUi('Rename successful: ${obj.name} -> $newName');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('重命名成功')),
+      );
+      _refresh();
+    } else {
+      _showErrorSnackBar(result.errorMessage ?? '重命名失败');
+    }
   }
 
   /// 移动到处理（留空）
@@ -1528,67 +1644,10 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   Future<void> _deleteFolder(ICloudPlatformApi api, String folderKey) async {
     logUi('Starting delete folder: $folderKey');
 
-    // 获取文件夹内的所有对象（不使用delimiter，递归列出所有对象）
-    String? marker;
-    int totalFailed = 0;
-
-    while (true) {
-      final listResult = await api.listObjects(
-        bucketName: widget.bucket.name,
-        region: widget.bucket.region,
-        prefix: folderKey,
-        delimiter: '', // 不使用delimiter，获取所有对象
-        maxKeys: 1000,
-        marker: marker,
-      );
-
-      if (!mounted) return;
-
-      if (!listResult.success || listResult.data == null) {
-        logError('Failed to list folder contents: ${listResult.errorMessage}');
-        _showErrorSnackBar('删除失败：无法列出文件夹内容');
-        return;
-      }
-
-      final objects = listResult.data!.objects;
-
-      // 收集除文件夹标记外的所有对象key
-      final objectKeys = objects
-          .where((obj) => obj.key != folderKey)
-          .map((obj) => obj.key)
-          .toList();
-
-      // 批量删除对象
-      if (objectKeys.isNotEmpty) {
-        logUi('Batch deleting ${objectKeys.length} objects in folder: $folderKey');
-        final deleteResult = await api.deleteObjects(
-          bucketName: widget.bucket.name,
-          region: widget.bucket.region,
-          objectKeys: objectKeys,
-        );
-
-        if (deleteResult.success) {
-          logUi('Batch delete completed: ${objectKeys.length} objects');
-        } else {
-          totalFailed += objectKeys.length;
-          logError('Batch delete failed: ${deleteResult.errorMessage}');
-        }
-      }
-
-      // 检查是否还有更多对象
-      if (listResult.data!.isTruncated) {
-        marker = listResult.data!.nextMarker;
-      } else {
-        break;
-      }
-    }
-
-    // 最后删除文件夹标记对象
-    logUi('Deleting folder marker: $folderKey');
-    final result = await api.deleteObject(
+    final result = await api.deleteFolder(
       bucketName: widget.bucket.name,
       region: widget.bucket.region,
-      objectKey: folderKey,
+      folderKey: folderKey,
     );
 
     if (!mounted) return;
@@ -1596,7 +1655,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     if (result.success) {
       logUi('Delete folder successful: $folderKey');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已删除文件夹 "${_getFolderName(folderKey)}"${totalFailed > 0 ? '，$totalFailed 个失败' : ''}')),
+        SnackBar(content: Text('已删除文件夹 "${_getFolderName(folderKey)}"')),
       );
       // 刷新文件列表
       _refresh();

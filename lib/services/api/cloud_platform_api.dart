@@ -96,4 +96,24 @@ abstract class ICloudPlatformApi {
     required String folderName,
     String prefix = '',
   });
+
+  /// 重命名对象（通过复制到新名称 + 删除原对象实现）
+  ///
+  /// [sourceKey] 原对象key
+  /// [newName] 新名称（不含路径）
+  /// [prefix] 当前目录前缀
+  Future<ApiResponse<void>> renameObject({
+    required String bucketName,
+    required String region,
+    required String sourceKey,
+    required String newName,
+    String prefix = '',
+  });
+
+  /// 递归删除文件夹及其所有内容
+  Future<ApiResponse<void>> deleteFolder({
+    required String bucketName,
+    required String region,
+    required String folderKey,
+  });
 }

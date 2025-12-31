@@ -984,6 +984,308 @@ class AliyunOssApi implements ICloudPlatformApi {
   }
 
   @override
+  Future<ApiResponse<void>> renameObject({
+    required String bucketName,
+    required String region,
+    required String sourceKey,
+    required String newName,
+    String prefix = '',
+  }) async {
+    log('[AliyunOSS] 开始重命名: $sourceKey -> $newName');
+
+    // 构建目标key
+    // 如果原对象是文件夹（以/结尾），新名称也需要加/
+    final isFolder = sourceKey.endsWith('/');
+    final targetKey = prefix.isEmpty
+        ? (isFolder ? '$newName/' : newName)
+        : '$prefix$newName${isFolder ? '/' : ''}';
+
+    // 如果源和目标相同，直接返回成功
+    if (sourceKey == targetKey) {
+      log('[AliyunOSS] 源和目标相同，无需操作');
+      return ApiResponse.success(null);
+    }
+
+    // 1. 复制对象（对于文件夹需要递归复制内部所有文件）
+    if (isFolder) {
+      final copyResult = await _copyFolder(
+        bucketName: bucketName,
+        region: region,
+        sourceFolderKey: sourceKey,
+        targetFolderKey: targetKey,
+      );
+      if (!copyResult.success) {
+        return copyResult;
+      }
+    } else {
+      final copyResult = await _copyObject(
+        bucketName: bucketName,
+        region: region,
+        sourceKey: sourceKey,
+        targetKey: targetKey,
+      );
+      if (!copyResult.success) {
+        logError('[AliyunOSS] 复制对象失败: ${copyResult.errorMessage}');
+        return ApiResponse.error(copyResult.errorMessage ?? '复制对象失败');
+      }
+    }
+
+    // 2. 删除源对象（对于文件夹需要递归删除内部所有对象）
+    if (isFolder) {
+      final deleteResult = await deleteFolder(
+        bucketName: bucketName,
+        region: region,
+        folderKey: sourceKey,
+      );
+      if (!deleteResult.success) {
+        logError('[AliyunOSS] 删除源文件夹失败: ${deleteResult.errorMessage}');
+        return ApiResponse.error('重命名成功，但删除原文件夹失败: ${deleteResult.errorMessage}');
+      }
+    } else {
+      final deleteResult = await deleteObject(
+        bucketName: bucketName,
+        region: region,
+        objectKey: sourceKey,
+      );
+      if (!deleteResult.success) {
+        logError('[AliyunOSS] 删除源对象失败: ${deleteResult.errorMessage}');
+        return ApiResponse.error('重命名成功，但删除原对象失败: ${deleteResult.errorMessage}');
+      }
+    }
+
+    log('[AliyunOSS] 重命名成功: $sourceKey -> $targetKey');
+    return ApiResponse.success(null);
+  }
+
+  /// 递归复制文件夹及其所有内容
+  Future<ApiResponse<void>> _copyFolder({
+    required String bucketName,
+    required String region,
+    required String sourceFolderKey,
+    required String targetFolderKey,
+  }) async {
+    log('[AliyunOSS] 开始递归复制文件夹: $sourceFolderKey -> $targetFolderKey');
+
+    // 首先复制文件夹标记
+    final folderMarkerCopy = await _copyObject(
+      bucketName: bucketName,
+      region: region,
+      sourceKey: sourceFolderKey,
+      targetKey: targetFolderKey,
+    );
+
+    if (!folderMarkerCopy.success) {
+      logError('[AliyunOSS] 复制文件夹标记失败: ${folderMarkerCopy.errorMessage}');
+      return folderMarkerCopy;
+    }
+
+    // 递归列出源文件夹内的所有对象并复制
+    String? marker;
+    int successCount = 0;
+    int failCount = 0;
+
+    while (true) {
+      final listResult = await listObjects(
+        bucketName: bucketName,
+        region: region,
+        prefix: sourceFolderKey,
+        delimiter: '', // 不使用delimiter，获取所有对象
+        maxKeys: 1000,
+        marker: marker,
+      );
+
+      if (!listResult.success || listResult.data == null) {
+        logError('[AliyunOSS] 列出文件夹内容失败: ${listResult.errorMessage}');
+        return ApiResponse.error('列出文件夹内容失败: ${listResult.errorMessage}');
+      }
+
+      final objects = listResult.data!.objects;
+
+      // 排除文件夹标记本身
+      final fileObjects = objects.where((obj) => obj.key != sourceFolderKey).toList();
+
+      // 复制每个文件
+      for (final obj in fileObjects) {
+        // 计算目标key：将源文件夹前缀替换为目标文件夹前缀
+        final relativePath = obj.key.substring(sourceFolderKey.length);
+        final targetKey = '$targetFolderKey$relativePath';
+
+        log('[AliyunOSS] 复制文件: ${obj.key} -> $targetKey');
+        final copyResult = await _copyObject(
+          bucketName: bucketName,
+          region: region,
+          sourceKey: obj.key,
+          targetKey: targetKey,
+        );
+
+        if (copyResult.success) {
+          successCount++;
+        } else {
+          failCount++;
+          logError('[AliyunOSS] 复制文件失败: ${obj.key}, ${copyResult.errorMessage}');
+        }
+      }
+
+      // 检查是否还有更多对象
+      if (listResult.data!.isTruncated) {
+        marker = listResult.data!.nextMarker;
+      } else {
+        break;
+      }
+    }
+
+    log('[AliyunOSS] 文件夹复制完成: $successCount 个成功, $failCount 个失败');
+    if (failCount > 0) {
+      return ApiResponse.error('部分文件复制失败: $failCount 个');
+    }
+    return ApiResponse.success(null);
+  }
+
+  @override
+  Future<ApiResponse<void>> deleteFolder({
+    required String bucketName,
+    required String region,
+    required String folderKey,
+  }) async {
+    log('[AliyunOSS] 开始删除文件夹: $folderKey');
+
+    // 获取文件夹内的所有对象（不使用delimiter，递归列出所有对象）
+    String? marker;
+    int totalFailed = 0;
+
+    while (true) {
+      final listResult = await listObjects(
+        bucketName: bucketName,
+        region: region,
+        prefix: folderKey,
+        delimiter: '', // 不使用delimiter，获取所有对象
+        maxKeys: 1000,
+        marker: marker,
+      );
+
+      if (!listResult.success || listResult.data == null) {
+        logError('[AliyunOSS] 列出文件夹内容失败: ${listResult.errorMessage}');
+        return ApiResponse.error('列出文件夹内容失败: ${listResult.errorMessage}');
+      }
+
+      final objects = listResult.data!.objects;
+
+      // 收集除文件夹标记外的所有对象key
+      final objectKeys = objects
+          .where((obj) => obj.key != folderKey)
+          .map((obj) => obj.key)
+          .toList();
+
+      // 批量删除对象
+      if (objectKeys.isNotEmpty) {
+        log('[AliyunOSS] 批量删除 ${objectKeys.length} 个对象');
+        final deleteResult = await deleteObjects(
+          bucketName: bucketName,
+          region: region,
+          objectKeys: objectKeys,
+        );
+
+        if (deleteResult.success) {
+          log('[AliyunOSS] 批量删除完成: ${objectKeys.length} 个对象');
+        } else {
+          totalFailed += objectKeys.length;
+          logError('[AliyunOSS] 批量删除失败: ${deleteResult.errorMessage}');
+        }
+      }
+
+      // 检查是否还有更多对象
+      if (listResult.data!.isTruncated) {
+        marker = listResult.data!.nextMarker;
+      } else {
+        break;
+      }
+    }
+
+    // 最后删除文件夹标记对象
+    log('[AliyunOSS] 删除文件夹标记: $folderKey');
+    final result = await deleteObject(
+      bucketName: bucketName,
+      region: region,
+      objectKey: folderKey,
+    );
+
+    if (result.success) {
+      log('[AliyunOSS] 文件夹删除成功: $folderKey${totalFailed > 0 ? '，$totalFailed 个失败' : ''}');
+      return ApiResponse.success(null);
+    } else {
+      logError('[AliyunOSS] 删除文件夹标记失败: ${result.errorMessage}');
+      return ApiResponse.error('删除文件夹标记失败: ${result.errorMessage}');
+    }
+  }
+
+  /// 复制对象（内部方法）
+  Future<ApiResponse<void>> _copyObject({
+    required String bucketName,
+    required String region,
+    required String sourceKey,
+    required String targetKey,
+  }) async {
+    try {
+      final host = _getEndpoint(bucketName);
+      final url = 'https://$host/${_encodePath(targetKey)}';
+
+      log('[AliyunOSS] 复制对象: $sourceKey -> $targetKey');
+
+      // 生成 GMT 格式的 Date 头部和 ISO8601 格式的 x-oss-date
+      final date = DateTime.now().toUtc();
+      final iso8601DateTime = _formatIso8601DateTime(date);
+      final httpDate = HttpDate.format(date);
+
+      // 构建源对象URI（需要编码）
+      final encodedSourceKey = _encodePath(sourceKey);
+
+      final headers = {
+        'Authorization': '',
+        'Content-Type': 'application/octet-stream',
+        'date': httpDate,
+        'x-oss-date': iso8601DateTime,
+        'x-oss-content-sha256': 'UNSIGNED-PAYLOAD', // 阿里云V4签名要求
+        'host': _getEndpoint(bucketName),
+        'x-oss-copy-source': '/$bucketName/$encodedSourceKey',
+      };
+
+      // 生成签名
+      final signature = _getSignatureV4(
+        method: 'PUT',
+        bucketName: bucketName,
+        objectKey: targetKey,
+        headers: headers,
+      );
+      headers['Authorization'] = signature;
+
+      final response = await _dio.put(
+        url,
+        data: <int>[],
+        options: Options(headers: headers),
+      );
+
+      if (response.statusCode == 200) {
+        log('[AliyunOSS] 复制对象成功');
+        return ApiResponse.success(null);
+      } else {
+        final errorData = response.data?.toString() ?? '';
+        logError('[AliyunOSS] 复制对象失败: ${response.statusCode}, 响应: $errorData');
+        return ApiResponse.error(
+          'Failed to copy object',
+          statusCode: response.statusCode,
+        );
+      }
+    } on DioException catch (e) {
+      final errorDetail = _parseAliyunError(e);
+      logError('[AliyunOSS] DioException: $errorDetail');
+      return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
+    } catch (e, stack) {
+      logError('[AliyunOSS] 异常: $e', stack);
+      return ApiResponse.error(e.toString());
+    }
+  }
+
+  @override
   Future<ApiResponse<void>> uploadObjectMultipart({
     required String bucketName,
     required String region,

@@ -827,6 +827,308 @@ class TencentCosApi implements ICloudPlatformApi {
   }
 
   @override
+  Future<ApiResponse<void>> renameObject({
+    required String bucketName,
+    required String region,
+    required String sourceKey,
+    required String newName,
+    String prefix = '',
+  }) async {
+    log('[TencentCOS] 开始重命名: $sourceKey -> $newName');
+
+    // 构建目标key
+    // 如果原对象是文件夹（以/结尾），新名称也需要加/
+    final isFolder = sourceKey.endsWith('/');
+    final targetKey = prefix.isEmpty
+        ? (isFolder ? '$newName/' : newName)
+        : '$prefix$newName${isFolder ? '/' : ''}';
+
+    // 如果源和目标相同，直接返回成功
+    if (sourceKey == targetKey) {
+      log('[TencentCOS] 源和目标相同，无需操作');
+      return ApiResponse.success(null);
+    }
+
+    // 1. 复制对象（对于文件夹需要递归复制内部所有文件）
+    if (isFolder) {
+      final copyResult = await _copyFolder(
+        bucketName: bucketName,
+        region: region,
+        sourceFolderKey: sourceKey,
+        targetFolderKey: targetKey,
+      );
+      if (!copyResult.success) {
+        return copyResult;
+      }
+    } else {
+      final copyResult = await _copyObject(
+        bucketName: bucketName,
+        region: region,
+        sourceKey: sourceKey,
+        targetKey: targetKey,
+      );
+      if (!copyResult.success) {
+        logError('[TencentCOS] 复制对象失败: ${copyResult.errorMessage}');
+        return ApiResponse.error(copyResult.errorMessage ?? '复制对象失败');
+      }
+    }
+
+    // 2. 删除源对象（对于文件夹需要递归删除内部所有对象）
+    if (isFolder) {
+      final deleteResult = await deleteFolder(
+        bucketName: bucketName,
+        region: region,
+        folderKey: sourceKey,
+      );
+      if (!deleteResult.success) {
+        logError('[TencentCOS] 删除源文件夹失败: ${deleteResult.errorMessage}');
+        return ApiResponse.error('重命名成功，但删除原文件夹失败: ${deleteResult.errorMessage}');
+      }
+    } else {
+      final deleteResult = await deleteObject(
+        bucketName: bucketName,
+        region: region,
+        objectKey: sourceKey,
+      );
+      if (!deleteResult.success) {
+        logError('[TencentCOS] 删除源对象失败: ${deleteResult.errorMessage}');
+        return ApiResponse.error('重命名成功，但删除原对象失败: ${deleteResult.errorMessage}');
+      }
+    }
+
+    log('[TencentCOS] 重命名成功: $sourceKey -> $targetKey');
+    return ApiResponse.success(null);
+  }
+
+  /// 递归复制文件夹及其所有内容
+  Future<ApiResponse<void>> _copyFolder({
+    required String bucketName,
+    required String region,
+    required String sourceFolderKey,
+    required String targetFolderKey,
+  }) async {
+    log('[TencentCOS] 开始递归复制文件夹: $sourceFolderKey -> $targetFolderKey');
+
+    // 首先复制文件夹标记
+    final folderMarkerCopy = await _copyObject(
+      bucketName: bucketName,
+      region: region,
+      sourceKey: sourceFolderKey,
+      targetKey: targetFolderKey,
+    );
+
+    if (!folderMarkerCopy.success) {
+      logError('[TencentCOS] 复制文件夹标记失败: ${folderMarkerCopy.errorMessage}');
+      return folderMarkerCopy;
+    }
+
+    // 递归列出源文件夹内的所有对象并复制
+    String? marker;
+    int successCount = 0;
+    int failCount = 0;
+
+    while (true) {
+      final listResult = await listObjects(
+        bucketName: bucketName,
+        region: region,
+        prefix: sourceFolderKey,
+        delimiter: '', // 不使用delimiter，获取所有对象
+        maxKeys: 1000,
+        marker: marker,
+      );
+
+      if (!listResult.success || listResult.data == null) {
+        logError('[TencentCOS] 列出文件夹内容失败: ${listResult.errorMessage}');
+        return ApiResponse.error('列出文件夹内容失败: ${listResult.errorMessage}');
+      }
+
+      final objects = listResult.data!.objects;
+
+      // 排除文件夹标记本身
+      final fileObjects = objects.where((obj) => obj.key != sourceFolderKey).toList();
+
+      // 复制每个文件
+      for (final obj in fileObjects) {
+        // 计算目标key：将源文件夹前缀替换为目标文件夹前缀
+        final relativePath = obj.key.substring(sourceFolderKey.length);
+        final targetKey = '$targetFolderKey$relativePath';
+
+        log('[TencentCOS] 复制文件: ${obj.key} -> $targetKey');
+        final copyResult = await _copyObject(
+          bucketName: bucketName,
+          region: region,
+          sourceKey: obj.key,
+          targetKey: targetKey,
+        );
+
+        if (copyResult.success) {
+          successCount++;
+        } else {
+          failCount++;
+          logError('[TencentCOS] 复制文件失败: ${obj.key}, ${copyResult.errorMessage}');
+        }
+      }
+
+      // 检查是否还有更多对象
+      if (listResult.data!.isTruncated) {
+        marker = listResult.data!.nextMarker;
+      } else {
+        break;
+      }
+    }
+
+    log('[TencentCOS] 文件夹复制完成: $successCount 个成功, $failCount 个失败');
+    if (failCount > 0) {
+      return ApiResponse.error('部分文件复制失败: $failCount 个');
+    }
+    return ApiResponse.success(null);
+  }
+
+  @override
+  Future<ApiResponse<void>> deleteFolder({
+    required String bucketName,
+    required String region,
+    required String folderKey,
+  }) async {
+    log('[TencentCOS] 开始删除文件夹: $folderKey');
+
+    // 获取文件夹内的所有对象（不使用delimiter，递归列出所有对象）
+    String? marker;
+    int totalFailed = 0;
+
+    while (true) {
+      final listResult = await listObjects(
+        bucketName: bucketName,
+        region: region,
+        prefix: folderKey,
+        delimiter: '', // 不使用delimiter，获取所有对象
+        maxKeys: 1000,
+        marker: marker,
+      );
+
+      if (!listResult.success || listResult.data == null) {
+        logError('[TencentCOS] 列出文件夹内容失败: ${listResult.errorMessage}');
+        return ApiResponse.error('列出文件夹内容失败: ${listResult.errorMessage}');
+      }
+
+      final objects = listResult.data!.objects;
+
+      // 收集除文件夹标记外的所有对象key
+      final objectKeys = objects
+          .where((obj) => obj.key != folderKey)
+          .map((obj) => obj.key)
+          .toList();
+
+      // 批量删除对象
+      if (objectKeys.isNotEmpty) {
+        log('[TencentCOS] 批量删除 ${objectKeys.length} 个对象');
+        final deleteResult = await deleteObjects(
+          bucketName: bucketName,
+          region: region,
+          objectKeys: objectKeys,
+        );
+
+        if (deleteResult.success) {
+          log('[TencentCOS] 批量删除完成: ${objectKeys.length} 个对象');
+        } else {
+          totalFailed += objectKeys.length;
+          logError('[TencentCOS] 批量删除失败: ${deleteResult.errorMessage}');
+        }
+      }
+
+      // 检查是否还有更多对象
+      if (listResult.data!.isTruncated) {
+        marker = listResult.data!.nextMarker;
+      } else {
+        break;
+      }
+    }
+
+    // 最后删除文件夹标记对象
+    log('[TencentCOS] 删除文件夹标记: $folderKey');
+    final result = await deleteObject(
+      bucketName: bucketName,
+      region: region,
+      objectKey: folderKey,
+    );
+
+    if (result.success) {
+      log('[TencentCOS] 文件夹删除成功: $folderKey${totalFailed > 0 ? '，$totalFailed 个失败' : ''}');
+      return ApiResponse.success(null);
+    } else {
+      logError('[TencentCOS] 删除文件夹标记失败: ${result.errorMessage}');
+      return ApiResponse.error('删除文件夹标记失败: ${result.errorMessage}');
+    }
+  }
+
+  /// 复制对象（内部方法）
+  Future<ApiResponse<void>> _copyObject({
+    required String bucketName,
+    required String region,
+    required String sourceKey,
+    required String targetKey,
+  }) async {
+    try {
+      final host = '$bucketName.cos.$region.myqcloud.com';
+      final url = 'https://$host/$targetKey';
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final end = now + 3600;
+      final keyTime = '$now;$end';
+
+      // 生成 GMT 格式的 Date 头部
+      final date = HttpDate.format(DateTime.now().toUtc());
+
+      // 生成签名时需要包含 Host 和 Date 头部
+      final headersForSign = {'host': host, 'date': date};
+      final signature = _getSignature(
+        'PUT',
+        '/$targetKey',
+        headersForSign,
+        secretId: credential.secretId,
+        secretKey: credential.secretKey,
+      );
+
+      // 源对象需要 URL 编码
+      final encodedSourceKey = Uri.encodeComponent(sourceKey);
+
+      final headers = {
+        'Authorization':
+            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$keyTime&q-key-time=$keyTime&q-header-list=date;host&q-url-param-list=&q-signature=$signature',
+        'Content-Type': 'application/octet-stream',
+        'Host': host,
+        'Date': date,
+        'x-cos-copy-source': '/$bucketName/$encodedSourceKey',
+      };
+
+      log('[TencentCOS] 复制对象: $sourceKey -> $targetKey');
+      final response = await _dio.put(
+        url,
+        data: <int>[],
+        options: Options(headers: headers),
+      );
+
+      if (response.statusCode == 200) {
+        log('[TencentCOS] 复制对象成功');
+        return ApiResponse.success(null);
+      } else {
+        final errorData = response.data?.toString() ?? '';
+        logError('[TencentCOS] 复制对象失败: ${response.statusCode}, 响应: $errorData');
+        return ApiResponse.error(
+          'Failed to copy object',
+          statusCode: response.statusCode,
+        );
+      }
+    } on DioException catch (e) {
+      final errorDetail = _parseTencentCloudError(e);
+      logError('[TencentCOS] DioException: $errorDetail');
+      return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
+    } catch (e, stack) {
+      logError('[TencentCOS] 异常: $e', stack);
+      return ApiResponse.error(e.toString());
+    }
+  }
+
+  @override
   Future<ApiResponse<void>> uploadObjectMultipart({
     required String bucketName,
     required String region,
