@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:archive/archive.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
@@ -1093,12 +1092,12 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           // 仅文件夹有的选项
           if (isFolder) ...[
             ListTile(
-              leading: Icon(Icons.archive),
-              title: Text('压缩下载'),
+              leading: Icon(Icons.download),
+              title: Text('下载'),
               onTap: () {
                 Navigator.pop(context);
-                logUi('User selected action: 压缩下载 for ${obj.name}');
-                _handleZipDownload(obj);
+                logUi('User selected action: 下载 for ${obj.name}');
+                _handleFolderDownload(obj);
               },
             ),
             ListTile(
@@ -1135,11 +1134,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     logUi('Copy to not implemented yet for: ${obj.name}');
   }
 
-  /// 压缩下载处理
-  Future<void> _handleZipDownload(ObjectFile folder) async {
-    assert(folder.type == ObjectType.folder, 'Only folders can be zip downloaded');
+  /// 文件夹下载处理
+  Future<void> _handleFolderDownload(ObjectFile folder) async {
+    assert(folder.type == ObjectType.folder, 'Only folders can be downloaded');
 
-    logUi('Starting zip download for folder: ${folder.name}');
+    logUi('Starting folder download for: ${folder.name}');
 
     // 获取凭证并创建API
     final credential = await _storage.getCredential(widget.platform);
@@ -1154,12 +1153,17 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       return;
     }
 
-    // 获取临时目录
-    final tempDir = Directory.systemTemp.createTempSync('zip_download_');
-    final folderDir = Directory('${tempDir.path}/${folder.name}');
-    folderDir.createSync(recursive: true);
+    // 让用户选择保存目录
+    final directoryPath = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: '选择保存位置',
+    );
 
-    logUi('Created temp directory: ${folderDir.path}');
+    if (directoryPath == null || directoryPath.isEmpty) {
+      logUi('User cancelled directory selection');
+      return;
+    }
+
+    logUi('Selected directory: $directoryPath');
 
     // 对话框状态
     int dialogCurrent = 0;
@@ -1178,7 +1182,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           builder: (context, setState) {
             dialogSetState = setState;
             return AlertDialog(
-              title: Text('压缩下载中'),
+              title: Text('下载中'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1231,30 +1235,34 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
       if (!mounted) return;
 
-      if (allObjects.isEmpty) {
+      // 过滤掉文件夹标记对象（以 / 结尾的只是标记，不是实际文件）
+      final fileObjects = allObjects.where((obj) => !obj.key.endsWith('/')).toList();
+
+      if (fileObjects.isEmpty) {
         closeProgressDialog();
         _showErrorSnackBar('文件夹为空');
         return;
       }
 
-      logUi('Found ${allObjects.length} objects in folder');
+      logUi('Found ${fileObjects.length} file objects (excluding folder markers)');
 
       // 关闭扫描对话框，准备开始下载
       closeProgressDialog();
-      await Future.delayed(Duration(milliseconds: 100)); // 等待对话框关闭
+      await Future.delayed(Duration(milliseconds: 100));
 
-      // 2. 下载所有文件到临时目录
+      // 2. 下载所有文件到目标目录
       int downloadedCount = 0;
+      int failedCount = 0;
 
-      for (final obj in allObjects) {
+      for (final obj in fileObjects) {
         if (!mounted) return;
 
         final relativePath = obj.key.substring(folder.key.length);
-        final savePath = '${folderDir.path}/$relativePath';
+        final savePath = '$directoryPath/${folder.name}/$relativePath';
         final saveFile = File(savePath);
         saveFile.parent.createSync(recursive: true);
 
-        updateProgress(downloadedCount, allObjects.length, '正在下载: ${obj.name}');
+        updateProgress(downloadedCount + failedCount, fileObjects.length, '正在下载: ${obj.name}');
 
         final result = await api.downloadObject(
           bucketName: widget.bucket.name,
@@ -1266,71 +1274,37 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         if (result.success && result.data != null) {
           await saveFile.writeAsBytes(result.data!);
           downloadedCount++;
-          logUi('Downloaded: ${obj.name}');
+          logUi('Downloaded: ${obj.name} -> $savePath');
         } else {
+          failedCount++;
           logError('Failed to download: ${obj.name}');
         }
       }
 
       if (!mounted) return;
 
+      // 关闭下载进度对话框
+      closeProgressDialog();
+
       if (downloadedCount == 0) {
-        closeProgressDialog();
         _showErrorSnackBar('下载文件失败');
         return;
       }
 
-      // 3. 压缩文件夹
-      updateProgress(0, 1, '正在压缩...');
-
-      final zipFileName = '${folder.name}.zip';
-      final zipPath = '${tempDir.path}/$zipFileName';
-
-      await _zipDirectory(folderDir, zipPath);
-
-      if (!mounted) return;
-
-      // 关闭压缩进度对话框
-      closeProgressDialog();
-
-      // 4. 让用户选择保存位置
-      final savePath = await FilePicker.platform.saveFile(
-        dialogTitle: '保存压缩文件',
-        fileName: zipFileName,
-      );
-
-      if (savePath == null || savePath.isEmpty) {
-        logUi('User cancelled save dialog');
-        return;
-      }
-
-      // 5. 保存 zip 文件
-      final zipFile = File(zipPath);
-      final zipBytes = await zipFile.readAsBytes();
-      final finalPath = savePath.endsWith('.zip') ? savePath : '$savePath.zip';
-      await File(finalPath).writeAsBytes(zipBytes);
-
-      logUi('Zip saved to: $finalPath');
-
-      if (!mounted) return;
+      // 3. 显示结果
+      final targetDir = '$directoryPath/${folder.name}';
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('压缩下载成功\n保存到: $finalPath')),
+        SnackBar(
+          content: Text('下载完成\n保存到: $targetDir\n成功: $downloadedCount 个${failedCount > 0 ? '，失败: $failedCount 个' : ''}'),
+        ),
       );
 
     } catch (e) {
-      logError('Zip download failed: $e');
+      logError('Folder download failed: $e');
       if (mounted) {
-        _showErrorSnackBar('压缩下载失败: $e');
+        _showErrorSnackBar('下载失败: $e');
       }
     } finally {
-      // 6. 清理临时目录
-      try {
-        tempDir.deleteSync(recursive: true);
-        logUi('Cleaned up temp directory');
-      } catch (e) {
-        logError('Failed to clean up temp directory: $e');
-      }
-
       // 确保关闭对话框
       closeProgressDialog();
     }
@@ -1366,36 +1340,6 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     }
 
     return allObjects;
-  }
-
-  /// 压缩目录为 zip 文件
-  Future<void> _zipDirectory(Directory sourceDir, String zipPath) async {
-    final files = <File>[];
-    _collectFiles(sourceDir, sourceDir.path, files);
-
-    final archive = Archive();
-
-    for (final file in files) {
-      final relativePath = file.path.substring(sourceDir.path.length + 1);
-      final bytes = await file.readAsBytes();
-      archive.addFile(ArchiveFile(relativePath, bytes.length, bytes));
-    }
-
-    final zipBytes = ZipEncoder().encode(archive)!;
-    await File(zipPath).writeAsBytes(zipBytes);
-
-    logUi('Created zip file: $zipPath (${files.length} files)');
-  }
-
-  /// 递归收集目录下所有文件
-  void _collectFiles(Directory dir, String basePath, List<File> files) {
-    for (final entity in dir.listSync(recursive: false)) {
-      if (entity is File) {
-        files.add(entity);
-      } else if (entity is Directory) {
-        _collectFiles(entity, basePath, files);
-      }
-    }
   }
 
   Future<void> _downloadObject(ObjectFile obj) async {
