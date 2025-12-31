@@ -47,16 +47,42 @@ class _MainScreenState extends State<MainScreen> {
 
   /// 刷新当前平台数据（从平台选择界面返回时调用）
   Future<void> _refreshCurrentPlatform() async {
+    logUi('_refreshCurrentPlatform called');
     final storage = Provider.of<StorageService>(context, listen: false);
+    logUi('_refreshCurrentPlatform: getting last platform...');
     final lastPlatform = await storage.getLastPlatform();
-    if (lastPlatform != null) {
-      setState(() {
-        _currentPlatform = lastPlatform;
-        _buckets = []; // 清空旧数据
-      });
-      logUi('Refreshed platform: ${lastPlatform.displayName}');
-      _loadBuckets();
+    logUi('_refreshCurrentPlatform: lastPlatform = $lastPlatform');
+    if (lastPlatform == null) {
+      logUi('_refreshCurrentPlatform: no last platform, returning');
+      return;
     }
+
+    // 使用 Future.delayed 避免在异步回调中直接 setState
+    // 这样可以确保 UI 更新在下一个事件循环中执行
+    // 同时检查 mounted 状态
+    logUi('_refreshCurrentPlatform: checking mounted...');
+    if (!mounted) {
+      logUi('_refreshCurrentPlatform: not mounted, returning');
+      return;
+    }
+    await Future.delayed(Duration.zero);
+
+    if (!mounted) {
+      logUi('_refreshCurrentPlatform: not mounted after delay, returning');
+      return;
+    }
+    setState(() {
+      _currentPlatform = lastPlatform;
+      _buckets = []; // 清空旧数据
+    });
+    logUi('Refreshed platform: ${lastPlatform.displayName}');
+
+    // 再次检查 mounted 状态后再调用 _loadBuckets
+    if (!mounted) {
+      logUi('_refreshCurrentPlatform: not mounted before loadBuckets, returning');
+      return;
+    }
+    await _loadBuckets();
   }
 
   Future<void> _loadBuckets() async {
@@ -80,20 +106,28 @@ class _MainScreenState extends State<MainScreen> {
     final factory = Provider.of<CloudPlatformFactory>(context, listen: false);
     final api = factory.createApi(_currentPlatform!, credential: credential);
 
-    if (api != null) {
-      final result = await api.listBuckets();
-      if (result.success) {
-        setState(() {
-          _buckets = result.data ?? [];
-        });
-        logUi('Loaded ${_buckets.length} buckets');
-      } else {
-        logError('Failed to load buckets: ${result.errorMessage}');
-      }
-    } else {
+    if (api == null) {
       logError(
         'Failed to create API for platform: ${_currentPlatform!.displayName}',
       );
+      return;
+    }
+
+    final result = await api.listBuckets();
+
+    // 使用 Future.delayed 确保 setState 在下一个事件循环执行
+    if (!mounted) return;
+    await Future.delayed(Duration.zero);
+
+    if (!mounted) return;
+
+    if (result.success) {
+      setState(() {
+        _buckets = result.data ?? [];
+      });
+      logUi('Loaded ${_buckets.length} buckets');
+    } else {
+      logError('Failed to load buckets: ${result.errorMessage}');
     }
   }
 
@@ -122,13 +156,15 @@ class _MainScreenState extends State<MainScreen> {
               onTap: () {
                 logUi('User tapped: 平台切换');
                 _scaffoldKey.currentState?.closeDrawer();
-                Navigator.pushReplacement(
+                // 使用 push 而不是 pushReplacement，保持 MainScreen 在栈中
+                Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (context) => PlatformSelectionScreen(),
                   ),
                 ).then((_) {
                   // 从平台选择界面返回时刷新数据
+                  logUi('PlatformSelectionScreen returned, calling _refreshCurrentPlatform');
                   _refreshCurrentPlatform();
                 });
               },

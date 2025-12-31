@@ -83,6 +83,9 @@ class _PlatformSelectionScreenState extends State<PlatformSelectionScreen> {
                 }
               } else {
                 logUi('User selected already logged in platform: ${platform.displayName} - returning');
+                // 保存最后选择的平台
+                final storage = Provider.of<StorageService>(context, listen: false);
+                await storage.saveLastPlatform(platform);
                 if (mounted) {
                   Navigator.pop(context);
                 }

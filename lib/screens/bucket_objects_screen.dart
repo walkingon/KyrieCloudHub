@@ -495,6 +495,45 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       return;
     }
 
+    // 显示进度对话框
+    int currentIndex = 0;
+    String currentFile = '';
+    double currentProgress = 0.0;
+    void Function(VoidCallback fn)? dialogSetState;
+
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            dialogSetState = setState;
+            return AlertDialog(
+              title: Text('上传文件中'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('正在上传: $currentFile', maxLines: 2),
+                  SizedBox(height: 16),
+                  SizedBox(
+                    width: 200,
+                    child: LinearProgressIndicator(
+                      value: currentProgress,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text('${(currentProgress * 100).toInt()}%'),
+                  SizedBox(height: 8),
+                  Text('$currentIndex/${files.length}'),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
     // 上传每个文件
     int successCount = 0;
     int failCount = 0;
@@ -506,6 +545,15 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       const largeFileThreshold = 100 * 1024 * 1024; // 100MB
       final objectKey = pickedFile.name;
 
+      currentIndex++;
+      currentFile = pickedFile.name;
+      currentProgress = 0.0;
+
+      // 更新对话框进度
+      if (mounted) {
+        dialogSetState?.call(() {});
+      }
+
       logUi('Uploading file: ${pickedFile.name}, size: ${pickedFile.size} bytes');
 
       // 大文件使用分块上传，小文件使用简单上传
@@ -516,7 +564,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           objectKey: objectKey,
           file: File(pickedFile.path!),
           chunkSize: 64 * 1024 * 1024, // 64MB 分块
-          onProgress: (s, t) {},
+          onProgress: (sent, total) {
+            dialogSetState?.call(() {
+              currentProgress = total > 0 ? sent / total : 0.0;
+            });
+          },
           onStatusChanged: (status) {},
         );
         if (result.success) {
@@ -535,7 +587,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           region: widget.bucket.region,
           objectKey: objectKey,
           data: fileBytes,
-          onProgress: (s, t) {},
+          onProgress: (sent, total) {
+            dialogSetState?.call(() {
+              currentProgress = total > 0 ? sent / total : 0.0;
+            });
+          },
         );
         if (result.success) {
           successCount++;
@@ -545,8 +601,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       }
     }
 
-    // 显示结果
+    // 关闭进度对话框并显示结果
     if (mounted) {
+      Navigator.of(context).pop();
       if (successCount > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('成功上传 $successCount 个文件${failCount > 0 ? '，$failCount 个失败' : ''}')),
