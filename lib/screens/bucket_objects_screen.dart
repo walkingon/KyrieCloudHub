@@ -1350,23 +1350,26 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
       final objects = listResult.data!.objects;
 
-      // 删除所有找到的对象
-      for (final obj in objects) {
-        // 跳过文件夹标记对象本身（最后删除）
-        if (obj.key == folderKey) continue;
+      // 收集除文件夹标记外的所有对象key
+      final objectKeys = objects
+          .where((obj) => obj.key != folderKey)
+          .map((obj) => obj.key)
+          .toList();
 
-        logUi('Deleting: ${obj.key}');
-        final deleteResult = await api.deleteObject(
+      // 批量删除对象
+      if (objectKeys.isNotEmpty) {
+        logUi('Batch deleting ${objectKeys.length} objects in folder: $folderKey');
+        final deleteResult = await api.deleteObjects(
           bucketName: widget.bucket.name,
           region: widget.bucket.region,
-          objectKey: obj.key,
+          objectKeys: objectKeys,
         );
 
         if (deleteResult.success) {
-          logUi('Deleted: ${obj.key}');
+          logUi('Batch delete completed: ${objectKeys.length} objects');
         } else {
-          totalFailed++;
-          logError('Failed to delete: ${obj.key}, ${deleteResult.errorMessage}');
+          totalFailed += objectKeys.length;
+          logError('Batch delete failed: ${deleteResult.errorMessage}');
         }
       }
 
