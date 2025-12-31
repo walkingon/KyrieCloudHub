@@ -3,12 +3,9 @@ import '../models/platform_credential.dart';
 import 'api/cloud_platform_api.dart';
 import 'api/tencent_cos_api.dart';
 import 'api/ali_yun_oss_api.dart';
-import 'api/http_client.dart';
 
 class CloudPlatformFactory {
-  final HttpClient httpClient;
-
-  CloudPlatformFactory(this.httpClient);
+  CloudPlatformFactory();
 
   ICloudPlatformApi? createApi(
     PlatformType platformType, {
@@ -17,12 +14,12 @@ class CloudPlatformFactory {
     switch (platformType) {
       case PlatformType.tencentCloud:
         if (credential != null) {
-          return TencentCosApi(credential, httpClient);
+          return TencentCosApi(credential);
         }
         return null;
       case PlatformType.aliCloud:
         if (credential != null) {
-          return AliyunOssApi(credential, httpClient);
+          return AliyunOssApi(credential);
         }
         return null;
     }

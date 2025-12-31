@@ -3,11 +3,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
+import 'package:dio/dio.dart';
 import 'package:xml/xml.dart';
 
 import '../../models/platform_credential.dart';
 import '../../utils/logger.dart';
-import '../api/http_client.dart';
 import 'file_chunk_reader.dart';
 
 /// 已上传分块信息
@@ -61,7 +61,7 @@ enum MultipartUploadStatus {
 /// 4. 取消分块上传 (Abort Multipart Upload)
 class MultipartUploadManager {
   final PlatformCredential credential;
-  final HttpClient httpClient;
+  final Dio dio;  // 改为直接使用 Dio
   final String bucketName;
   final String region;
   final String objectKey;
@@ -101,7 +101,7 @@ class MultipartUploadManager {
 
   MultipartUploadManager({
     required this.credential,
-    required this.httpClient,
+    required this.dio,
     required this.bucketName,
     required this.region,
     required this.objectKey,
@@ -146,7 +146,7 @@ class MultipartUploadManager {
       };
 
       final url = 'https://$_host/$objectKey?uploads';
-      final response = await httpClient.post(url, headers: headers, data: []);
+      final response = await dio.post(url, data: [], options: Options(headers: headers));
 
       if (response.statusCode == 200) {
         // 解析XML响应获取 UploadId
@@ -229,10 +229,10 @@ class MultipartUploadManager {
       };
 
       final url = 'https://$_host/$objectKey?partNumber=$partNumber&uploadId=$uploadId';
-      final response = await httpClient.put(
+      final response = await dio.put(
         url,
         data: data,
-        headers: headers,
+        options: Options(headers: headers),
       );
 
       if (response.statusCode == 200) {
@@ -311,10 +311,10 @@ class MultipartUploadManager {
       };
 
       final url = 'https://$_host/$objectKey?uploadId=$uploadId';
-      final response = await httpClient.post(
+      final response = await dio.post(
         url,
-        headers: headers,
         data: utf8.encode(partsXml.toString()),
+        options: Options(headers: headers),
       );
 
       if (response.statusCode == 200) {
@@ -362,7 +362,7 @@ class MultipartUploadManager {
       };
 
       final url = 'https://$_host/$objectKey?uploadId=$uploadId';
-      final response = await httpClient.delete(url, headers: headers);
+      final response = await dio.delete(url, options: Options(headers: headers));
 
       if (response.statusCode == 204) {
         log('[MultipartUploadManager] 取消分块上传成功');

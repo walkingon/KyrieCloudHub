@@ -9,7 +9,6 @@ import '../../models/object_file.dart';
 import '../../models/platform_credential.dart';
 import '../../utils/logger.dart';
 import 'cloud_platform_api.dart';
-import 'http_client.dart';
 import '../multipart_upload/file_chunk_reader.dart';
 
 /// 阿里云OSS API实现
@@ -24,9 +23,17 @@ class AliyunOssApi implements ICloudPlatformApi {
   static const bool _debugSignature = false;
 
   final PlatformCredential credential;
-  final HttpClient httpClient;
+  late final Dio _dio;
 
-  AliyunOssApi(this.credential, this.httpClient);
+  AliyunOssApi(this.credential) {
+    _dio = Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(seconds: 30),
+        sendTimeout: const Duration(seconds: 30),
+      ),
+    );
+  }
 
   /// 打印签名调试日志（仅在_debugSignature为true时打印）
   void _debugLog(String message) {
@@ -98,6 +105,7 @@ class AliyunOssApi implements ICloudPlatformApi {
     _debugLog('[AliyunOSS] CanonicalUri: $canonicalUri');
 
     // 构建 Canonical Query String（与阿里云官方SDK一致：空值不添加等号）
+    // 注意：marker 值在 listObjects 中已经编码过了，如果已包含 % 则不再重复编码
     String canonicalQueryString = '';
     if (queryParams != null && queryParams.isNotEmpty) {
       final sortedParams = queryParams.entries.toList()
@@ -107,6 +115,14 @@ class AliyunOssApi implements ICloudPlatformApi {
             final encodedKey = Uri.encodeComponent(e.key);
             if (e.value.isEmpty) {
               return encodedKey; // 空值不添加等号
+            }
+            // 如果 marker 值已包含 % 编码字符（如 %28），说明已经编码过，直接使用
+            // 否则使用 _encodeMarkerValue 编码
+            if (e.key == 'marker') {
+              if (e.value.contains('%')) {
+                return '$encodedKey=${e.value}'; // 已编码，直接使用
+              }
+              return '$encodedKey=${_encodeMarkerValue(e.value)}';
             }
             return '$encodedKey=${Uri.encodeComponent(e.value)}';
           })
@@ -234,6 +250,16 @@ class AliyunOssApi implements ICloudPlatformApi {
         .replaceAll('%2F', '/')
         .replaceAll('(', '%28')
         .replaceAll(')', '%29');
+  }
+
+  /// marker 值的特殊编码：encodeComponent 基础上额外编码圆括号
+  /// 解决文件名包含圆括号时的签名不匹配问题
+  String _encodeMarkerValue(String value) {
+    // 先用 encodeComponent 编码基础字符
+    String encoded = Uri.encodeComponent(value);
+    // 额外编码圆括号 ( -> %28, ) -> %29
+    encoded = encoded.replaceAll('(', '%28').replaceAll(')', '%29');
+    return encoded;
   }
 
   /// HMAC-SHA256 计算，使用字节作为key，返回十六进制字符串（小写）
@@ -399,7 +425,7 @@ class AliyunOssApi implements ICloudPlatformApi {
       final headers = _buildHeaders(method: 'GET', customHost: host);
 
       log('[AliyunOSS] 发送GET请求...');
-      final response = await httpClient.get(url, headers: headers);
+      final response = await _dio.get(url, options: Options(headers: headers));
       log('[AliyunOSS] 响应状态码: ${response.statusCode}');
 
       if (response.statusCode == 200) {
@@ -480,33 +506,45 @@ class AliyunOssApi implements ICloudPlatformApi {
       final host = _getEndpoint(bucketName);
 
       // 构建查询参数
+      // marker 值使用 _encodeMarkerValue 预先编码（解决圆括号等特殊字符签名不匹配问题）
+      // 注意：URL 构建时只编码 key，value 使用已编码的值，避免双重编码
       final queryParams = <String, String>{
         'prefix': prefix,
         'delimiter': delimiter,
         'max-keys': maxKeys.toString(),
       };
       if (marker != null && marker.isNotEmpty) {
-        queryParams['marker'] = marker;
+        queryParams['marker'] = _encodeMarkerValue(marker);
       }
 
+      // 构建 URL 时只编码 key，value 已经是编码后的值
       final queryString = queryParams.entries
           .map(
-            (e) =>
-                '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}',
+            (e) => '${Uri.encodeComponent(e.key)}=${e.value}',
           )
           .join('&');
       final url = 'https://$host/?$queryString';
 
       log('[AliyunOSS] 开始查询对象列表, URL: $url');
 
+      // 签名时也使用编码后的 queryParams（确保签名与实际请求一致）
+      final signedQueryParams = <String, String>{
+        'prefix': prefix,
+        'delimiter': delimiter,
+        'max-keys': maxKeys.toString(),
+      };
+      if (marker != null && marker.isNotEmpty) {
+        signedQueryParams['marker'] = _encodeMarkerValue(marker);
+      }
+
       final headers = _buildHeaders(
         method: 'GET',
         bucketName: bucketName,
-        queryParams: queryParams,
+        queryParams: signedQueryParams,
       );
 
       log('[AliyunOSS] 发送GET请求...');
-      final response = await httpClient.get(url, headers: headers);
+      final response = await _dio.get(url, options: Options(headers: headers));
 
       log('[AliyunOSS] 响应状态码: ${response.statusCode}');
 
@@ -536,10 +574,29 @@ class AliyunOssApi implements ICloudPlatformApi {
 
   ListObjectsResult _parseObjectsFromXml(String xml) {
     final objects = <ObjectFile>[];
+    bool isTruncated = false;
+    String? nextMarker;
 
     try {
       final document = XmlDocument.parse(xml);
       final resultElement = document.findElements('ListBucketResult').first;
+
+      // 解析分页信息
+      try {
+        final isTruncatedElement = resultElement.findElements('IsTruncated').first;
+        isTruncated = isTruncatedElement.innerText.toLowerCase() == 'true';
+        log('[AliyunOSS] IsTruncated: $isTruncated');
+      } catch (e) {
+        isTruncated = false;
+      }
+
+      try {
+        final nextMarkerElement = resultElement.findElements('NextMarker').first;
+        nextMarker = nextMarkerElement.innerText;
+        log('[AliyunOSS] NextMarker: $nextMarker');
+      } catch (e) {
+        nextMarker = null;
+      }
 
       // 解析文件内容
       final contentsElements = resultElement.findElements('Contents');
@@ -588,7 +645,11 @@ class AliyunOssApi implements ICloudPlatformApi {
       logError('[AliyunOSS] 解析对象XML失败: $e');
     }
 
-    return ListObjectsResult(objects: objects);
+    return ListObjectsResult(
+      objects: objects,
+      isTruncated: isTruncated,
+      nextMarker: nextMarker,
+    );
   }
 
   @override
@@ -633,10 +694,10 @@ class AliyunOssApi implements ICloudPlatformApi {
       );
       headers['Authorization'] = signature;
 
-      final response = await httpClient.put(
+      final response = await _dio.put(
         url,
         data: data,
-        headers: headers,
+        options: Options(headers: headers),
         onSendProgress: onProgress,
       );
 
@@ -678,11 +739,10 @@ class AliyunOssApi implements ICloudPlatformApi {
         objectKey: objectKey,
       );
 
-      final response = await httpClient.get(
+      final response = await _dio.get(
         url,
-        headers: headers,
+        options: Options(headers: headers, responseType: ResponseType.bytes),
         onReceiveProgress: onProgress,
-        responseType: ResponseType.bytes,
       );
 
       if (response.statusCode == 200) {
@@ -722,7 +782,7 @@ class AliyunOssApi implements ICloudPlatformApi {
         objectKey: objectKey,
       );
 
-      final response = await httpClient.delete(url, headers: headers);
+      final response = await _dio.delete(url, options: Options(headers: headers));
 
       if (response.statusCode == 204 || response.statusCode == 200) {
         log('[AliyunOSS] 删除成功');
@@ -797,10 +857,10 @@ class AliyunOssApi implements ICloudPlatformApi {
       );
       headers['Authorization'] = signature;
 
-      final response = await httpClient.post(
+      final response = await _dio.post(
         url,
         data: requestBodyBytes,
-        headers: headers,
+        options: Options(headers: headers),
       );
 
       if (response.statusCode == 200) {
@@ -818,6 +878,70 @@ class AliyunOssApi implements ICloudPlatformApi {
       return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
     } catch (e) {
       logError('[AliyunOSS] 批量删除异常: $e');
+      return ApiResponse.error(e.toString());
+    }
+  }
+
+  @override
+  Future<ApiResponse<void>> createFolder({
+    required String bucketName,
+    required String region,
+    required String folderName,
+    String prefix = '',
+  }) async {
+    try {
+      // 构建文件夹的key：prefix + folderName + /
+      final objectKey = prefix.isEmpty ? '$folderName/' : '$prefix$folderName/';
+      final host = _getEndpoint(bucketName);
+      final url = 'https://$host/${_encodePath(objectKey)}';
+
+      log('[AliyunOSS] 创建文件夹: $objectKey');
+
+      // 生成 GMT 格式的 Date 头部和 ISO8601 格式的 x-oss-date
+      final date = DateTime.now().toUtc();
+      final iso8601DateTime = _formatIso8601DateTime(date);
+      final httpDate = HttpDate.format(date);
+
+      final headers = {
+        'Authorization': '',
+        'Content-Type': 'application/directory',
+        'date': httpDate,
+        'x-oss-date': iso8601DateTime,
+        'x-oss-content-sha256': 'UNSIGNED-PAYLOAD', // 阿里云V4签名要求
+        'host': _getEndpoint(bucketName),
+      };
+
+      // 生成签名
+      final signature = _getSignatureV4(
+        method: 'PUT',
+        bucketName: bucketName,
+        objectKey: objectKey,
+        headers: headers,
+      );
+      headers['Authorization'] = signature;
+
+      final response = await _dio.put(
+        url,
+        data: <int>[],
+        options: Options(headers: headers),
+      );
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        log('[AliyunOSS] 文件夹创建成功: $objectKey');
+        return ApiResponse.success(null);
+      } else {
+        logError('[AliyunOSS] 创建文件夹失败: ${response.statusCode}');
+        return ApiResponse.error(
+          'Failed to create folder',
+          statusCode: response.statusCode,
+        );
+      }
+    } on DioException catch (e) {
+      final errorDetail = _parseAliyunError(e);
+      logError('[AliyunOSS] DioException: $errorDetail');
+      return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
+    } catch (e, stack) {
+      logError('[AliyunOSS] 异常: $e', stack);
       return ApiResponse.error(e.toString());
     }
   }
@@ -850,7 +974,7 @@ class AliyunOssApi implements ICloudPlatformApi {
       );
 
       log('[AliyunOSS] 初始化分块上传...');
-      final initResponse = await httpClient.post(initUrl, headers: initHeaders);
+      final initResponse = await _dio.post(initUrl, options: Options(headers: initHeaders));
 
       if (initResponse.statusCode != 200) {
         return ApiResponse.error(
@@ -923,10 +1047,10 @@ class AliyunOssApi implements ICloudPlatformApi {
             },
           );
 
-          final uploadResponse = await httpClient.put(
+          final uploadResponse = await _dio.put(
             uploadUrl,
             data: chunk.data,
-            headers: uploadHeaders,
+            options: Options(headers: uploadHeaders),
           );
 
           // 直接打印响应状态（绕过可能的日志拦截问题）
@@ -1003,10 +1127,10 @@ class AliyunOssApi implements ICloudPlatformApi {
         queryParams: {'uploadId': uploadId!},
       );
 
-      final completeResponse = await httpClient.post(
+      final completeResponse = await _dio.post(
         completeUrl,
         data: completeBodyBytes,
-        headers: completeHeaders,
+        options: Options(headers: completeHeaders),
       );
 
       if (completeResponse.statusCode == 200) {

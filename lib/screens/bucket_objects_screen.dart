@@ -19,6 +19,14 @@ enum ViewMode {
   grid,
 }
 
+/// 加载状态
+enum LoadingState {
+  idle,
+  loading,
+  success,
+  error,
+}
+
 class BucketObjectsScreen extends StatefulWidget {
   final Bucket bucket;
   final PlatformType platform;
@@ -35,7 +43,8 @@ class BucketObjectsScreen extends StatefulWidget {
 
 class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   List<ObjectFile> _objects = [];
-  bool _isLoading = true;
+  LoadingState _loadingState = LoadingState.idle;
+  String _errorMessage = '';
   late final StorageService _storage;
   late final CloudPlatformFactory _factory;
 
@@ -45,8 +54,26 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   // 多选模式相关
   bool _isSelectionMode = false;
   final Set<String> _selectedObjects = {};
+
+  // 当前路径
+  String _currentPrefix = '';
+
+  // 分页相关
+  static const int _pageSize = 10;
+  int _currentPage = 1;
+  bool _hasMore = false;
+  String? _nextMarker;
+  bool _isLoadingMore = false;
+
   List<ObjectFile> get _selectedFileList =>
       _objects.where((obj) => _selectedObjects.contains(obj.key)).toList();
+
+  // 当前路径分段（用于路径导航）
+  List<String> get _pathSegments {
+    if (_currentPrefix.isEmpty) return [];
+    final parts = _currentPrefix.split('/').where((e) => e.isNotEmpty).toList();
+    return parts;
+  }
 
   @override
   void initState() {
@@ -54,50 +81,119 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     logUi('BucketObjectsScreen initialized for bucket: ${widget.bucket.name}');
     _storage = Provider.of<StorageService>(context, listen: false);
     _factory = Provider.of<CloudPlatformFactory>(context, listen: false);
+    _loadObjects(refresh: true);
+  }
+
+  Future<void> _loadObjects({bool refresh = false}) async {
+    if (refresh) {
+      setState(() {
+        _loadingState = LoadingState.loading;
+        _errorMessage = '';
+        if (_currentPage == 1) {
+          _objects = [];
+        }
+      });
+    }
+
+    logUi('Loading objects for bucket: ${widget.bucket.name}, prefix: "$_currentPrefix", page: $_currentPage');
+
+    final credential = await _storage.getCredential(widget.platform);
+    if (credential == null) {
+      _setError('未找到登录凭证');
+      return;
+    }
+
+    final api = _factory.createApi(widget.platform, credential: credential);
+    if (api == null) {
+      _setError('API创建失败');
+      return;
+    }
+
+    try {
+      final result = await api.listObjects(
+        bucketName: widget.bucket.name,
+        region: widget.bucket.region,
+        prefix: _currentPrefix,
+        delimiter: '/',
+        maxKeys: _pageSize,
+        marker: _currentPage == 1 ? null : _nextMarker,
+      );
+
+      if (!mounted) return;
+
+      if (result.success && result.data != null) {
+        logUi('Before setState: page=$_currentPage, objects=${_objects.length}');
+        setState(() {
+          // 每次加载都替换数据（传统分页模式）
+          _objects = result.data!.objects;
+          _hasMore = result.data!.isTruncated;
+          _nextMarker = result.data!.nextMarker;
+          _loadingState = _objects.isEmpty ? LoadingState.success : LoadingState.success;
+          _errorMessage = '';
+          _isLoadingMore = false;
+        });
+        logUi('After setState: page=$_currentPage, objects=${_objects.length}, hasMore=$_hasMore');
+        logUi('Loaded ${_objects.length} objects, hasMore: $_hasMore, page: $_currentPage');
+      } else {
+        _setError(result.errorMessage ?? '加载失败');
+        if (mounted) {
+          setState(() {
+            _isLoadingMore = false;
+          });
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      _setError('加载失败: $e');
+      if (mounted) {
+        setState(() {
+          _isLoadingMore = false;
+        });
+      }
+    }
+  }
+
+  void _setError(String message) {
+    setState(() {
+      _loadingState = LoadingState.error;
+      _errorMessage = message;
+    });
+    logError('Load objects error: $message');
+  }
+
+  /// 加载下一页
+  void _loadNextPage() {
+    if (_isLoadingMore || !_hasMore) return;
+    setState(() {
+      _isLoadingMore = true;
+      _currentPage++;
+    });
     _loadObjects();
   }
 
-  Future<void> _loadObjects() async {
+  /// 加载上一页
+  void _loadPreviousPage() {
+    if (_isLoadingMore || _currentPage <= 1) return;
     setState(() {
-      _isLoading = true;
+      _isLoadingMore = true;
+      _currentPage--;
     });
+    _loadObjects();
+  }
 
-    logUi('Loading objects for bucket: ${widget.bucket.name}');
-    final credential = await _storage.getCredential(widget.platform);
-    if (credential != null) {
-      final api = _factory.createApi(widget.platform, credential: credential);
-      if (api != null) {
-        final result = await api.listObjects(
-          bucketName: widget.bucket.name,
-          region: widget.bucket.region,
-        );
-        if (result.success) {
-          if (mounted) {
-            setState(() {
-              _objects = result.data?.objects ?? [];
-            });
-          }
-          logUi('Loaded ${_objects.length} objects from bucket: ${widget.bucket.name}');
-        } else {
-          logError('Failed to load objects: ${result.errorMessage}');
-        }
-      }
-    }
-
-    if (mounted) {
-      setState(() {
-        _isLoading = false;
-      });
-    }
+  /// 刷新当前页
+  Future<void> _refresh() async {
+    _currentPage = 1;
+    _nextMarker = null;
+    _hasMore = false;
+    await _loadObjects(refresh: true);
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: _isSelectionMode
-            ? Text('已选择 ${_selectedObjects.length} 项')
-            : Text(widget.bucket.name),
+        title: _buildTitle(),
         actions: [
           if (!_isSelectionMode) _buildViewModeToggle(),
           ..._buildSelectionActions(),
@@ -107,21 +203,404 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                 icon: Icon(Icons.close),
                 onPressed: _exitSelectionMode,
               )
-            : null,
+            : IconButton(
+                icon: Icon(Icons.arrow_back),
+                onPressed: () => Navigator.pop(context),
+                tooltip: '返回',
+              ),
       ),
-      body: _isLoading
-          ? Center(child: CircularProgressIndicator())
-          : _objects.isEmpty
-              ? Center(child: Text('暂无文件'))
-              : _viewMode == ViewMode.grid
-                  ? _buildGridView()
-                  : _buildListView(),
+      body: _buildBody(),
       floatingActionButton: _isSelectionMode
           ? null
           : FloatingActionButton(
-              onPressed: _uploadFiles,
+              tooltip: '添加',
+              onPressed: _showAddOptions,
               child: Icon(Icons.add),
             ),
+    );
+  }
+
+  /// 构建标题（包含路径导航）
+  Widget _buildTitle() {
+    if (_isSelectionMode) {
+      return Text('已选择 ${_selectedObjects.length} 项');
+    }
+
+    if (_pathSegments.isEmpty) {
+      return Text(widget.bucket.name);
+    }
+
+    return SizedBox(
+      width: 200,
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              _pathSegments.last,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 构建路径导航栏
+  Widget _buildPathNavigation() {
+    if (_pathSegments.isEmpty) {
+      return Container();
+    }
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      color: Colors.grey.shade100,
+      child: Row(
+        children: [
+          // 返回根目录按钮
+          TextButton.icon(
+            icon: Icon(Icons.home, size: 18),
+            label: Text('根目录'),
+            onPressed: _currentPrefix.isEmpty ? null : _navigateToRoot,
+          ),
+          Text(' / '),
+          // 路径分段
+          Expanded(
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: _buildPathChips(),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildPathChips() {
+    final chips = <Widget>[];
+    final segments = _pathSegments;
+
+    for (int i = 0; i < segments.length; i++) {
+      if (i > 0) {
+        chips.add(Text(' / '));
+      }
+
+      final isLast = i == segments.length - 1;
+      final prefix = i == 0 ? '' : _buildPrefixForSegment(i);
+
+      chips.add(
+        ActionChip(
+          label: Text(
+            segments[i],
+            style: TextStyle(
+              color: isLast ? Colors.blue : Colors.black87,
+              fontWeight: isLast ? FontWeight.w500 : FontWeight.normal,
+            ),
+          ),
+          onPressed: isLast ? null : () => _navigateToPrefix(prefix),
+          avatar: isLast ? null : Icon(Icons.folder, size: 16),
+        ),
+      );
+    }
+
+    return chips;
+  }
+
+  String _buildPrefixForSegment(int index) {
+    final parts = _pathSegments.take(index + 1).toList();
+    return '${parts.join('/')}/';
+  }
+
+  void _navigateToRoot() {
+    if (_currentPrefix.isNotEmpty) {
+      setState(() {
+        _currentPrefix = '';
+        _currentPage = 1;
+      });
+      _refresh();
+    }
+  }
+
+  void _navigateToPrefix(String prefix) {
+    if (prefix != _currentPrefix) {
+      setState(() {
+        _currentPrefix = prefix;
+        _currentPage = 1;
+      });
+      _refresh();
+    }
+  }
+
+  /// 显示添加选项（上传文件/新建文件夹）
+  void _showAddOptions() {
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: Icon(Icons.file_upload),
+            title: Text('上传文件'),
+            onTap: () {
+              Navigator.pop(context);
+              _uploadFiles();
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.create_new_folder),
+            title: Text('新建文件夹'),
+            onTap: () {
+              Navigator.pop(context);
+              _showCreateFolderDialog();
+            },
+          ),
+          SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
+  /// 显示新建文件夹对话框
+  void _showCreateFolderDialog() {
+    final TextEditingController controller = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+    String? errorText;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: Text('新建文件夹'),
+          content: Form(
+            key: formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  controller: controller,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    labelText: '文件夹名称',
+                    hintText: '请输入文件夹名称',
+                    errorText: errorText,
+                  ),
+                  validator: (value) {
+                    if (value == null || value.trim().isEmpty) {
+                      return '请输入文件夹名称';
+                    }
+                    if (value.contains('/') || value.contains('\\')) {
+                      return '名称不能包含 / 或 \\';
+                    }
+                    return null;
+                  },
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('取消'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                if (!(formKey.currentState?.validate() ?? false)) return;
+
+                final folderName = controller.text.trim();
+                if (_objects.any((obj) => obj.name == folderName && obj.type == ObjectType.folder)) {
+                  setState(() {
+                    errorText = '文件夹已存在';
+                  });
+                  return;
+                }
+
+                Navigator.pop(context);
+                _createFolder(folderName);
+              },
+              child: Text('创建'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 创建文件夹
+  Future<void> _createFolder(String folderName) async {
+    logUi('Creating folder: $folderName in prefix: "$_currentPrefix"');
+
+    final credential = await _storage.getCredential(widget.platform);
+    if (credential == null) {
+      _showErrorSnackBar('未找到登录凭证');
+      return;
+    }
+
+    final api = _factory.createApi(widget.platform, credential: credential);
+    if (api == null) {
+      _showErrorSnackBar('API创建失败');
+      return;
+    }
+
+    setState(() {
+      _loadingState = LoadingState.loading;
+    });
+
+    final result = await api.createFolder(
+      bucketName: widget.bucket.name,
+      region: widget.bucket.region,
+      folderName: folderName,
+      prefix: _currentPrefix,
+    );
+
+    if (!mounted) return;
+
+    if (result.success) {
+      logUi('Folder created successfully: $folderName');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('文件夹 "$folderName" 创建成功')),
+      );
+      _refresh();
+    } else {
+      _showErrorSnackBar(result.errorMessage ?? '创建失败');
+    }
+  }
+
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+
+  Widget _buildBody() {
+    return Column(
+      children: [
+        // 路径导航
+        _buildPathNavigation(),
+        // 加载状态/错误提示
+        _buildStatusWidget(),
+        // 文件列表
+        Expanded(
+          child: _buildContent(),
+        ),
+        // 分页控制器
+        _buildPaginationControls(),
+      ],
+    );
+  }
+
+  Widget _buildStatusWidget() {
+    switch (_loadingState) {
+      case LoadingState.loading:
+        return LinearProgressIndicator();
+      case LoadingState.error:
+        return Container(
+          padding: EdgeInsets.all(16),
+          color: Colors.red.shade50,
+          child: Row(
+            children: [
+              Icon(Icons.error_outline, color: Colors.red),
+              SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('加载失败', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                    Text(_errorMessage, style: TextStyle(color: Colors.red.shade700, fontSize: 12)),
+                  ],
+                ),
+              ),
+              TextButton(
+                onPressed: _refresh,
+                child: Text('重试'),
+              ),
+            ],
+          ),
+        );
+      case LoadingState.success:
+        if (_objects.isEmpty) {
+          return Container(
+            padding: EdgeInsets.all(32),
+            child: Column(
+              children: [
+                Icon(Icons.folder_open, size: 64, color: Colors.grey.shade400),
+                SizedBox(height: 16),
+                Text('该文件夹为空', style: TextStyle(color: Colors.grey.shade600)),
+                SizedBox(height: 8),
+                Text('点击右下角按钮上传文件或创建文件夹', style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+              ],
+            ),
+          );
+        }
+        return Container();
+      case LoadingState.idle:
+        return Container();
+    }
+  }
+
+  Widget _buildContent() {
+    if (_loadingState == LoadingState.loading && _objects.isEmpty) {
+      return Center(child: CircularProgressIndicator());
+    }
+
+    if (_objects.isEmpty) {
+      return Container();
+    }
+
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: _viewMode == ViewMode.grid ? _buildGridView() : _buildListView(),
+    );
+  }
+
+  /// 构建分页控制器
+  Widget _buildPaginationControls() {
+    if (_objects.isEmpty) return Container();
+
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        border: Border(top: BorderSide(color: Colors.grey.shade300)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // 上一页
+          IconButton(
+            icon: Icon(Icons.chevron_left),
+            onPressed: _currentPage > 1 ? _loadPreviousPage : null,
+            tooltip: '上一页',
+          ),
+          // 页码信息
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: 16),
+            child: Text(
+              '第 $_currentPage 页',
+              style: TextStyle(fontSize: 14),
+            ),
+          ),
+          // 下一页
+          IconButton(
+            icon: Icon(Icons.chevron_right),
+            onPressed: _hasMore ? _loadNextPage : null,
+            tooltip: '下一页',
+            disabledColor: Colors.grey.shade400,
+          ),
+          // 加载更多指示器
+          if (_isLoadingMore)
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+        ],
+      ),
     );
   }
 
@@ -153,7 +632,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         return ListTile(
           leading: Icon(_getObjectIcon(obj)),
           title: Text(obj.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-          subtitle: isFolder ? null : Text('${_formatBytes(obj.size)} • ${_formatDate(obj.lastModified)}'),
+          subtitle: isFolder
+              ? null
+              : Text('${_formatBytes(obj.size)} • ${_formatDate(obj.lastModified)}'),
           selected: isSelected,
           selectedTileColor: Colors.blue.withValues(alpha: 0.1),
           trailing: isFolder
@@ -167,7 +648,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
               _toggleSelection(obj);
             } else {
               logUi('User tapped object: ${obj.name}');
-              _showObjectActions(obj);
+              if (isFolder) {
+                _navigateToFolder(obj);
+              } else {
+                _showObjectActions(obj);
+              }
             }
           },
           onLongPress: isFolder
@@ -203,7 +688,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
               if (!isFolder) _toggleSelection(obj);
             } else {
               logUi('User tapped object: ${obj.name}');
-              _showObjectActions(obj);
+              if (isFolder) {
+                _navigateToFolder(obj);
+              } else {
+                _showObjectActions(obj);
+              }
             }
           },
           onLongPress: isFolder
@@ -218,9 +707,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                 color: isSelected ? Colors.blue : Colors.grey.shade300,
               ),
               borderRadius: BorderRadius.circular(8),
-              color: isSelected
-                  ? Colors.blue.withValues(alpha: 0.1)
-                  : Colors.white,
+              color: isSelected ? Colors.blue.withValues(alpha: 0.1) : Colors.white,
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -263,6 +750,18 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         );
       },
     );
+  }
+
+  /// 进入文件夹
+  void _navigateToFolder(ObjectFile folder) {
+    logUi('Navigating to folder: ${folder.name}');
+    setState(() {
+      _currentPrefix = folder.key;
+      _currentPage = 1;
+      _nextMarker = null;
+      _hasMore = false;
+    });
+    _loadObjects(refresh: true);
   }
 
   /// 根据屏幕宽度获取网格列数
@@ -367,14 +866,15 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   }
 
   List<Widget> _buildSelectionActions() {
+    final fileCount = _objects.where((o) => o.type == ObjectType.file).length;
+    final selectedFileCount = _selectedFileList.length;
+
     return [
       // 全选/取消全选
       IconButton(
-        icon: Icon(_selectedObjects.length == _objects.where((o) => o.type == ObjectType.file).length
-            ? Icons.deselect
-            : Icons.select_all),
-        onPressed: _toggleSelectAll,
-        tooltip: '全选',
+        icon: Icon(selectedFileCount == fileCount ? Icons.deselect : Icons.select_all),
+        onPressed: fileCount > 0 ? _toggleSelectAll : null,
+        tooltip: selectedFileCount == fileCount ? '取消全选' : '全选',
       ),
       // 批量下载
       IconButton(
@@ -447,31 +947,30 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     logUi('Showing actions for object: ${obj.name}');
     showModalBottomSheet(
       context: context,
-      builder: (context) {
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: Icon(Icons.download),
-              title: Text('下载'),
-              onTap: () {
-                Navigator.pop(context);
-                logUi('User selected action: 下载 for ${obj.name}');
-                _downloadObject(obj);
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.delete),
-              title: Text('删除'),
-              onTap: () {
-                Navigator.pop(context);
-                logUi('User selected action: 删除 for ${obj.name}');
-                _deleteObject(obj);
-              },
-            ),
-          ],
-        );
-      },
+      builder: (context) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: Icon(Icons.download),
+            title: Text('下载'),
+            onTap: () {
+              Navigator.pop(context);
+              logUi('User selected action: 下载 for ${obj.name}');
+              _downloadObject(obj);
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.delete),
+            title: Text('删除'),
+            onTap: () {
+              Navigator.pop(context);
+              logUi('User selected action: 删除 for ${obj.name}');
+              _deleteObject(obj);
+            },
+          ),
+          SizedBox(height: 16),
+        ],
+      ),
     );
   }
 
@@ -496,22 +995,14 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     final credential = await _storage.getCredential(widget.platform);
     if (credential == null) {
       logError('No credential found for platform: ${widget.platform}');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('下载失败：未找到凭证')),
-        );
-      }
+      _showErrorSnackBar('下载失败：未找到凭证');
       return;
     }
 
     final api = _factory.createApi(widget.platform, credential: credential);
     if (api == null) {
       logError('Failed to create API for platform: ${widget.platform}');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('下载失败：API创建失败')),
-        );
-      }
+      _showErrorSnackBar('下载失败：API创建失败');
       return;
     }
 
@@ -519,7 +1010,6 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     int received = 0;
     int total = obj.size > 0 ? obj.size : 1;
     double progress = 0.0;
-    // 捕获 StatefulBuilder 的 setState，用于更新对话框进度
     void Function(VoidCallback fn)? dialogSetState;
 
     // 显示下载进度对话框（不阻塞下载）
@@ -589,19 +1079,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           }
         } catch (e) {
           logError('Failed to save file: $e');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('下载失败：保存文件失败')),
-            );
-          }
+          _showErrorSnackBar('下载失败：保存文件失败');
         }
       } else {
         logError('Download failed: ${downloadResult.errorMessage}');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('下载失败: ${downloadResult.errorMessage}')),
-          );
-        }
+        _showErrorSnackBar('下载失败: ${downloadResult.errorMessage}');
       }
     }));
   }
@@ -636,22 +1118,14 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     final credential = await _storage.getCredential(widget.platform);
     if (credential == null) {
       logError('No credential found for platform: ${widget.platform}');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('删除失败：未找到凭证')),
-        );
-      }
+      _showErrorSnackBar('删除失败：未找到凭证');
       return;
     }
 
     final api = _factory.createApi(widget.platform, credential: credential);
     if (api == null) {
       logError('Failed to create API for platform: ${widget.platform}');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('删除失败：API创建失败')),
-        );
-      }
+      _showErrorSnackBar('删除失败：API创建失败');
       return;
     }
 
@@ -662,20 +1136,18 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       objectKey: obj.key,
     );
 
-    if (mounted) {
-      if (result.success) {
-        logUi('Delete successful: ${obj.name}');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('删除成功: ${obj.name}')),
-        );
-        // 刷新文件列表
-        _loadObjects();
-      } else {
-        logError('Delete failed: ${result.errorMessage}');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('删除失败: ${result.errorMessage}')),
-        );
-      }
+    if (!mounted) return;
+
+    if (result.success) {
+      logUi('Delete successful: ${obj.name}');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('删除成功: ${obj.name}')),
+      );
+      // 刷新文件列表
+      _refresh();
+    } else {
+      logError('Delete failed: ${result.errorMessage}');
+      _showErrorSnackBar('删除失败: ${result.errorMessage}');
     }
   }
 
@@ -758,7 +1230,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
       final fileSize = pickedFile.size;
       const largeFileThreshold = 100 * 1024 * 1024; // 100MB
-      final objectKey = pickedFile.name;
+      final objectKey = _currentPrefix + pickedFile.name;
 
       currentIndex++;
       currentFile = pickedFile.name;
@@ -830,7 +1302,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         );
       }
       // 刷新文件列表
-      _loadObjects();
+      _refresh();
     }
   }
 
@@ -1013,14 +1485,14 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       }
     }
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('成功删除 $successCount 个文件${failCount > 0 ? '，$failCount 个失败' : ''}')),
-      );
-      // 刷新文件列表并退出选择模式
-      _loadObjects();
-      _exitSelectionMode();
-    }
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('成功删除 $successCount 个文件${failCount > 0 ? '，$failCount 个失败' : ''}')),
+    );
+    // 刷新文件列表并退出选择模式
+    _refresh();
+    _exitSelectionMode();
   }
 
   /// 读取文件字节

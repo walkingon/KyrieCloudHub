@@ -88,4 +88,12 @@ abstract class ICloudPlatformApi {
     required String region,
     required List<String> objectKeys,
   });
+
+  /// 创建文件夹（通过上传一个0字节的对象，key以/结尾）
+  Future<ApiResponse<void>> createFolder({
+    required String bucketName,
+    required String region,
+    required String folderName,
+    String prefix = '',
+  });
 }

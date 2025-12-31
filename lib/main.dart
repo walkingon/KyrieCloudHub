@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'screens/main_screen.dart';
 import 'services/cloud_platform_factory.dart';
 import 'services/storage_service.dart';
-import 'services/api/http_client.dart';
 import 'services/transfer_queue_service.dart';
 import 'utils/logger.dart';
 
@@ -36,11 +35,8 @@ class MyApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         Provider<StorageService>(create: (_) => StorageService()),
-        Provider<HttpClient>(create: (_) => HttpClient()),
         Provider<CloudPlatformFactory>(
-          create: (context) => CloudPlatformFactory(
-            Provider.of<HttpClient>(context, listen: false),
-          ),
+          create: (_) => CloudPlatformFactory(),
         ),
         ChangeNotifierProvider<TransferQueueService>(
           create: (_) => TransferQueueService(),
