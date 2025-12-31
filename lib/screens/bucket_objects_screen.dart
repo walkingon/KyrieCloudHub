@@ -653,12 +653,10 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
               }
             }
           },
-          onLongPress: isFolder
-              ? null
-              : () {
-                  logUi('User long pressed object: ${obj.name}');
-                  _enterSelectionMode(obj);
-                },
+          onLongPress: () {
+            logUi('User long pressed object: ${obj.name}');
+            _showObjectOptionsMenu(obj);
+          },
         );
       },
     );
@@ -693,12 +691,10 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
               }
             }
           },
-          onLongPress: isFolder
-              ? null
-              : () {
-                  logUi('User long pressed object: ${obj.name}');
-                  _enterSelectionMode(obj);
-                },
+          onLongPress: () {
+            logUi('User long pressed object: ${obj.name}');
+            _showObjectOptionsMenu(obj);
+          },
           child: Container(
             decoration: BoxDecoration(
               border: Border.all(
@@ -980,14 +976,6 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     ];
   }
 
-  void _enterSelectionMode(ObjectFile obj) {
-    setState(() {
-      _isSelectionMode = true;
-      _selectedObjects.add(obj.key);
-    });
-    logUi('Entered selection mode, selected: ${obj.name}');
-  }
-
   void _exitSelectionMode() {
     setState(() {
       _isSelectionMode = false;
@@ -1061,6 +1049,94 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         ],
       ),
     );
+  }
+
+  /// 长按弹出选项菜单
+  void _showObjectOptionsMenu(ObjectFile obj) {
+    final isFolder = obj.type == ObjectType.folder;
+
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 文件和文件夹共有的选项
+          ListTile(
+            leading: Icon(Icons.drive_file_rename_outline),
+            title: Text('重命名'),
+            onTap: () {
+              Navigator.pop(context);
+              logUi('User selected action: 重命名 for ${obj.name}');
+              _handleRename(obj);
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.drive_file_move),
+            title: Text('移动到'),
+            onTap: () {
+              Navigator.pop(context);
+              logUi('User selected action: 移动到 for ${obj.name}');
+              _handleMoveTo(obj);
+            },
+          ),
+          ListTile(
+            leading: Icon(Icons.copy),
+            title: Text('复制到'),
+            onTap: () {
+              Navigator.pop(context);
+              logUi('User selected action: 复制到 for ${obj.name}');
+              _handleCopyTo(obj);
+            },
+          ),
+          // 仅文件夹有的选项
+          if (isFolder) ...[
+            ListTile(
+              leading: Icon(Icons.archive),
+              title: Text('压缩下载'),
+              onTap: () {
+                Navigator.pop(context);
+                logUi('User selected action: 压缩下载 for ${obj.name}');
+                _handleZipDownload(obj);
+              },
+            ),
+            ListTile(
+              leading: Icon(Icons.delete),
+              title: Text('删除'),
+              onTap: () {
+                Navigator.pop(context);
+                logUi('User selected action: 删除 for ${obj.name}');
+                _deleteObject(obj);
+              },
+            ),
+          ],
+          SizedBox(height: 16),
+        ],
+      ),
+    );
+  }
+
+  /// 重命名处理（留空）
+  void _handleRename(ObjectFile obj) {
+    // TODO: 实现重命名逻辑
+    logUi('Rename not implemented yet for: ${obj.name}');
+  }
+
+  /// 移动到处理（留空）
+  void _handleMoveTo(ObjectFile obj) {
+    // TODO: 实现移动到逻辑
+    logUi('Move to not implemented yet for: ${obj.name}');
+  }
+
+  /// 复制到处理（留空）
+  void _handleCopyTo(ObjectFile obj) {
+    // TODO: 实现复制到逻辑
+    logUi('Copy to not implemented yet for: ${obj.name}');
+  }
+
+  /// 压缩下载处理（留空）
+  void _handleZipDownload(ObjectFile obj) {
+    // TODO: 实现压缩下载逻辑
+    logUi('Zip download not implemented yet for: ${obj.name}');
   }
 
   Future<void> _downloadObject(ObjectFile obj) async {
