@@ -69,26 +69,32 @@ class AliyunOssApi implements ICloudPlatformApi {
     log('[AliyunOSS] CanonicalHeaders: """$canonicalHeadersStr"""');
 
     // 5. 构建 Canonical URI 和 Canonical Query String
+    // 注意：Canonical URI 需要 URI 编码，但正斜杠 / 不需要编码
     String canonicalUri = '/';
     if (bucketName != null) {
-      canonicalUri = '/$bucketName';
       if (objectKey != null && objectKey.isNotEmpty) {
-        canonicalUri = '/$bucketName/$objectKey';
+        // 有具体对象路径时: /bucketName/objectKey
+        // 对 objectKey 进行 URI 编码，但不编码 /
+        canonicalUri = '/$bucketName/${_encodePath(objectKey)}';
+      } else {
+        // 仅访问存储桶时（如列举对象）: /bucketName/ (需要末尾斜杠)
+        canonicalUri = '/$bucketName/';
       }
     }
     log('[AliyunOSS] CanonicalUri: $canonicalUri');
 
-    // 构建 Canonical Query String
+    // 构建 Canonical Query String（与阿里云官方SDK一致：空值不添加等号）
     String canonicalQueryString = '';
     if (queryParams != null && queryParams.isNotEmpty) {
       final sortedParams = queryParams.entries.toList()
         ..sort((a, b) => a.key.compareTo(b.key));
-      canonicalQueryString = sortedParams
-          .map(
-            (e) =>
-                '${Uri.encodeComponent(e.key)}=${Uri.encodeComponent(e.value)}',
-          )
-          .join('&');
+      canonicalQueryString = sortedParams.map((e) {
+        final encodedKey = Uri.encodeComponent(e.key);
+        if (e.value.isEmpty) {
+          return encodedKey; // 空值不添加等号
+        }
+        return '$encodedKey=${Uri.encodeComponent(e.value)}';
+      }).join('&');
     }
     log('[AliyunOSS] CanonicalQueryString: """$canonicalQueryString"""');
 
@@ -198,11 +204,19 @@ class AliyunOssApi implements ICloudPlatformApi {
     return 'oss-$region.aliyuncs.com';
   }
 
-  /// HMAC-SHA256 计算，使用字节作为key，返回十六进制字符串
+  /// 对路径进行 URI 编码（不编码正斜杠）
+  /// 阿里云要求：资源路径中的正斜杠 / 不需要编码
+  String _encodePath(String path) {
+    // 使用 Uri.encodeComponent 编码，然后还原 /
+    return Uri.encodeComponent(path).replaceAll('%2F', '/');
+  }
+
+  /// HMAC-SHA256 计算，使用字节作为key，返回十六进制字符串（小写）
   String _hmacSha256WithBytesKeyHex(List<int> keyBytes, String data) {
     final dataBytes = utf8.encode(data);
     final hmac = Hmac(sha256, keyBytes);
     final digest = hmac.convert(dataBytes);
+    // Hmac.toString() 返回小写十六进制
     return digest.toString();
   }
 
@@ -228,10 +242,12 @@ class AliyunOssApi implements ICloudPlatformApi {
     return digest.bytes;
   }
 
-  /// SHA256 计算，返回十六进制字符串
+  /// SHA256 计算，返回十六进制字符串（小写）
+  /// 注意：阿里云 OSS V4 签名使用小写十六进制
   String _sha256Hex(String data) {
     final dataBytes = utf8.encode(data);
     final hash = sha256.convert(dataBytes);
+    // sha256.convert().toString() 返回小写十六进制，与阿里云期望一致
     return hash.toString();
   }
 
@@ -251,6 +267,8 @@ class AliyunOssApi implements ICloudPlatformApi {
 
     final host = customHost ?? _getHost(bucketName);
 
+    // 注意：不要在这里添加 date header，否则会导致签名不匹配
+    // date header 会在签名计算完成后添加（用于HTTP协议兼容性，但不参与签名）
     final headers = <String, String>{
       'host': host,
       'x-oss-date': iso8601DateTime, // 阿里云V4签名要求使用x-oss-date头部（ISO8601格式）
@@ -266,9 +284,13 @@ class AliyunOssApi implements ICloudPlatformApi {
       queryParams: queryParams,
     );
 
+    // 先添加 Authorization（不包含在签名中）
     headers['Authorization'] = signature;
-    // 保留HTTP Date头部用于兼容性
+
+    // date header 在签名计算后添加（用于HTTP协议兼容性，但不参与签名）
+    // 阿里云 OSS V4 签名使用 x-oss-date，时间格式为 ISO8601
     headers['date'] = httpDate;
+
     return headers;
   }
 

@@ -158,7 +158,8 @@ class HttpClient {
       errorInfo += ', status: ${e.response!.statusCode}';
       if (e.response!.data != null) {
         final dataStr = e.response!.data.toString();
-        final truncated = dataStr.length > 500 ? '${dataStr.substring(0, 500)}...' : dataStr;
+        // 增加响应日志长度限制，便于调试
+        final truncated = dataStr.length > 5000 ? '${dataStr.substring(0, 5000)}...' : dataStr;
         errorInfo += ', response: $truncated';
       }
     }
