@@ -109,12 +109,12 @@ class FileChunkReader {
   /// 流式读取文件分块 (适合超大文件，使用回调方式)
   ///
   /// [file] 要分块的文件
-  /// [onChunk] 每个分块的回调
+  /// [onChunk] 每个分块的回调（等待回调完成后再处理下一个分块）
   /// [onProgress] 进度回调 (已读取字节数, 总字节数)
   /// 返回分块数量
   Future<int> streamChunks(
     File file, {
-    required void Function(FileChunk chunk) onChunk,
+    required Future<void> Function(FileChunk chunk) onChunk,
     void Function(int bytesRead, int totalBytes)? onProgress,
   }) async {
     final fileSize = await file.length();
@@ -145,7 +145,8 @@ class FileChunkReader {
           offset: totalBytesRead - bytesRead,
         );
 
-        onChunk(chunk);
+        // 等待 onChunk 完成后再处理下一个分块
+        await onChunk(chunk);
         log('[FileChunkReader] 流式读取分块 $partNumber, 大小: $bytesRead bytes');
         onProgress?.call(totalBytesRead, fileSize);
       }

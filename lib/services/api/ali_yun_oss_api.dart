@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:xml/xml.dart';
@@ -273,6 +274,12 @@ class AliyunOssApi implements ICloudPlatformApi {
   /// 字节数组转十六进制字符串（小写）
   String _bytesToHex(List<int> bytes) {
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join('');
+  }
+
+  /// 生成分块ETag（用于备用方案）
+  String _generatePartETag(Uint8List data) {
+    final hash = md5.convert(data);
+    return hash.toString();
   }
 
   /// 构建请求头（包含签名）
@@ -922,16 +929,24 @@ class AliyunOssApi implements ICloudPlatformApi {
             headers: uploadHeaders,
           );
 
-          if (uploadResponse.statusCode == 200) {
+          // 直接打印响应状态（绕过可能的日志拦截问题）
+          final statusCode = uploadResponse.statusCode ?? 0;
+          final etagHeader = uploadResponse.headers['etag']?.first ?? 'NOT_FOUND';
+          log('[AliyunOSS] 分块 $partNumber 响应: status=$statusCode, etag=$etagHeader');
+
+          if (statusCode == 200) {
             // 记录已上传的分块信息
-            final etag = uploadResponse.headers['etag']?.first ?? '';
+            final etagHeaders = uploadResponse.headers['etag'];
+            final etag = etagHeaders != null && etagHeaders.isNotEmpty
+                ? etagHeaders.first.replaceAll('"', '')
+                : '';
             uploadedParts.add({
               'PartNumber': partNumber,
-              'ETag': etag.replaceAll('"', ''),
+              'ETag': etag.isNotEmpty ? etag : _generatePartETag(chunk.data),
             });
 
             onProgress?.call(chunk.offset + chunk.size, fileSize);
-            log('[AliyunOSS] 分块 $partNumber 上传成功');
+            log('[AliyunOSS] 分块 $partNumber 上传成功, ETag: ${uploadedParts.last['ETag']}');
           } else {
             logError(
               '[AliyunOSS] 分块 $partNumber 上传失败: ${uploadResponse.statusCode}',
