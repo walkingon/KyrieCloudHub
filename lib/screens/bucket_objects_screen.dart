@@ -13,6 +13,12 @@ import '../utils/logger.dart';
 
 // ignore_for_file: library_private_types_in_public_api
 
+/// 视图模式枚举
+enum ViewMode {
+  list,
+  grid,
+}
+
 class BucketObjectsScreen extends StatefulWidget {
   final Bucket bucket;
   final PlatformType platform;
@@ -32,6 +38,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   bool _isLoading = true;
   late final StorageService _storage;
   late final CloudPlatformFactory _factory;
+
+  // 视图模式
+  ViewMode _viewMode = ViewMode.list;
 
   // 多选模式相关
   bool _isSelectionMode = false;
@@ -89,7 +98,10 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         title: _isSelectionMode
             ? Text('已选择 ${_selectedObjects.length} 项')
             : Text(widget.bucket.name),
-        actions: _isSelectionMode ? _buildSelectionActions() : null,
+        actions: [
+          if (!_isSelectionMode) _buildViewModeToggle(),
+          ..._buildSelectionActions(),
+        ],
         leading: _isSelectionMode
             ? IconButton(
                 icon: Icon(Icons.close),
@@ -99,49 +111,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
-          : Stack(
-              children: [
-                ListView.builder(
-                  itemCount: _objects.length,
-                  itemBuilder: (context, index) {
-                    final obj = _objects[index];
-                    final isSelected = _selectedObjects.contains(obj.key);
-                    // 文件夹不允许选择（暂不支持文件夹操作）
-                    final isFolder = obj.type != ObjectType.file;
-
-                    return ListTile(
-                      leading: Icon(
-                        isFolder ? Icons.folder : Icons.insert_drive_file,
-                      ),
-                      title: Text(obj.name),
-                      subtitle: Text(obj.lastModified?.toString() ?? ''),
-                      selected: isSelected,
-                      selectedTileColor: Colors.blue.withValues(alpha: 0.1),
-                      trailing: isFolder
-                          ? null
-                          : Checkbox(
-                              value: isSelected,
-                              onChanged: (value) => _toggleSelection(obj),
-                            ),
-                      onTap: () {
-                        if (_isSelectionMode) {
-                          _toggleSelection(obj);
-                        } else {
-                          logUi('User tapped object: ${obj.name}');
-                          _showObjectActions(obj);
-                        }
-                      },
-                      onLongPress: isFolder
-                          ? null
-                          : () {
-                              logUi('User long pressed object: ${obj.name}');
-                              _enterSelectionMode(obj);
-                            },
-                    );
-                  },
-                ),
-              ],
-            ),
+          : _objects.isEmpty
+              ? Center(child: Text('暂无文件'))
+              : _viewMode == ViewMode.grid
+                  ? _buildGridView()
+                  : _buildListView(),
       floatingActionButton: _isSelectionMode
           ? null
           : FloatingActionButton(
@@ -149,6 +123,247 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
               child: Icon(Icons.add),
             ),
     );
+  }
+
+  /// 构建视图模式切换按钮
+  Widget _buildViewModeToggle() {
+    return IconButton(
+      icon: Icon(_viewMode == ViewMode.list ? Icons.grid_view : Icons.view_list),
+      onPressed: _toggleViewMode,
+      tooltip: _viewMode == ViewMode.list ? '网格视图' : '列表视图',
+    );
+  }
+
+  void _toggleViewMode() {
+    setState(() {
+      _viewMode = _viewMode == ViewMode.list ? ViewMode.grid : ViewMode.list;
+    });
+    logUi('View mode changed to: ${_viewMode.name}');
+  }
+
+  /// 构建列表视图
+  Widget _buildListView() {
+    return ListView.builder(
+      itemCount: _objects.length,
+      itemBuilder: (context, index) {
+        final obj = _objects[index];
+        final isSelected = _selectedObjects.contains(obj.key);
+        final isFolder = obj.type != ObjectType.file;
+
+        return ListTile(
+          leading: Icon(_getObjectIcon(obj)),
+          title: Text(obj.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+          subtitle: isFolder ? null : Text('${_formatBytes(obj.size)} • ${_formatDate(obj.lastModified)}'),
+          selected: isSelected,
+          selectedTileColor: Colors.blue.withValues(alpha: 0.1),
+          trailing: isFolder
+              ? null
+              : Checkbox(
+                  value: isSelected,
+                  onChanged: (value) => _toggleSelection(obj),
+                ),
+          onTap: () {
+            if (_isSelectionMode) {
+              _toggleSelection(obj);
+            } else {
+              logUi('User tapped object: ${obj.name}');
+              _showObjectActions(obj);
+            }
+          },
+          onLongPress: isFolder
+              ? null
+              : () {
+                  logUi('User long pressed object: ${obj.name}');
+                  _enterSelectionMode(obj);
+                },
+        );
+      },
+    );
+  }
+
+  /// 构建网格视图
+  Widget _buildGridView() {
+    return GridView.builder(
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: _getCrossAxisCount(),
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+        childAspectRatio: 0.75,
+      ),
+      padding: EdgeInsets.all(16),
+      itemCount: _objects.length,
+      itemBuilder: (context, index) {
+        final obj = _objects[index];
+        final isSelected = _selectedObjects.contains(obj.key);
+        final isFolder = obj.type != ObjectType.file;
+
+        return GestureDetector(
+          onTap: () {
+            if (_isSelectionMode) {
+              if (!isFolder) _toggleSelection(obj);
+            } else {
+              logUi('User tapped object: ${obj.name}');
+              _showObjectActions(obj);
+            }
+          },
+          onLongPress: isFolder
+              ? null
+              : () {
+                  logUi('User long pressed object: ${obj.name}');
+                  _enterSelectionMode(obj);
+                },
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border.all(
+                color: isSelected ? Colors.blue : Colors.grey.shade300,
+              ),
+              borderRadius: BorderRadius.circular(8),
+              color: isSelected
+                  ? Colors.blue.withValues(alpha: 0.1)
+                  : Colors.white,
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  _getObjectIcon(obj),
+                  size: 48,
+                  color: isFolder ? Colors.amber : Colors.blueGrey,
+                ),
+                SizedBox(height: 8),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: Text(
+                    obj.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: isSelected ? Colors.blue : Colors.black87,
+                    ),
+                  ),
+                ),
+                if (!isFolder)
+                  Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: Text(
+                      _formatBytes(obj.size),
+                      style: TextStyle(fontSize: 10, color: Colors.grey),
+                    ),
+                  ),
+                if (isFolder && _isSelectionMode)
+                  Checkbox(
+                    value: isSelected,
+                    onChanged: (value) => _toggleSelection(obj),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 根据屏幕宽度获取网格列数
+  int _getCrossAxisCount() {
+    final width = MediaQuery.of(context).size.width;
+    if (width > 1200) return 6;
+    if (width > 900) return 5;
+    if (width > 600) return 4;
+    if (width > 400) return 3;
+    return 2;
+  }
+
+  /// 根据文件类型获取图标
+  IconData _getObjectIcon(ObjectFile obj) {
+    if (obj.type == ObjectType.folder) {
+      return Icons.folder;
+    }
+
+    final ext = obj.extension.toLowerCase();
+    switch (ext) {
+      // 图片
+      case 'jpg':
+      case 'jpeg':
+      case 'png':
+      case 'gif':
+      case 'bmp':
+      case 'webp':
+      case 'svg':
+        return Icons.image;
+
+      // 视频
+      case 'mp4':
+      case 'avi':
+      case 'mkv':
+      case 'mov':
+      case 'wmv':
+      case 'flv':
+      case 'webm':
+        return Icons.video_file;
+
+      // 音频
+      case 'mp3':
+      case 'wav':
+      case 'flac':
+      case 'aac':
+      case 'ogg':
+      case 'm4a':
+        return Icons.audio_file;
+
+      // 文档
+      case 'pdf':
+        return Icons.picture_as_pdf;
+
+      case 'doc':
+      case 'docx':
+      case 'txt':
+      case 'rtf':
+        return Icons.description;
+
+      case 'xls':
+      case 'xlsx':
+      case 'csv':
+        return Icons.table_chart;
+
+      case 'ppt':
+      case 'pptx':
+        return Icons.slideshow;
+
+      // 压缩文件
+      case 'zip':
+      case 'rar':
+      case '7z':
+      case 'tar':
+      case 'gz':
+        return Icons.archive;
+
+      // 代码
+      case 'dart':
+      case 'js':
+      case 'ts':
+      case 'py':
+      case 'java':
+      case 'c':
+      case 'cpp':
+      case 'h':
+      case 'html':
+      case 'css':
+      case 'json':
+      case 'yaml':
+      case 'yml':
+        return Icons.code;
+
+      // 可执行文件
+      case 'exe':
+      case 'app':
+      case 'dmg':
+        return Icons.play_circle_filled;
+
+      default:
+        return Icons.insert_drive_file;
+    }
   }
 
   List<Widget> _buildSelectionActions() {
@@ -821,6 +1036,15 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       return null;
     }
   }
+
+  /// 格式化日期时间
+  String _formatDate(DateTime? date) {
+    if (date == null) return '未知';
+    return '${date.year}-${_pad(date.month)}-${_pad(date.day)} ${_pad(date.hour)}:${_pad(date.minute)}';
+  }
+
+  /// 补零
+  String _pad(int n) => n.toString().padLeft(2, '0');
 
   /// 格式化字节大小
   String _formatBytes(int bytes) {

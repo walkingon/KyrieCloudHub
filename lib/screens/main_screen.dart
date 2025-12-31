@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../models/bucket.dart';
 import '../models/platform_type.dart';
 import '../services/cloud_platform_factory.dart';
 import '../services/storage_service.dart';
@@ -12,6 +13,12 @@ import 'bucket_objects_screen.dart';
 
 // ignore_for_file: library_private_types_in_public_api
 
+/// 视图模式枚举
+enum ViewMode {
+  list,
+  grid,
+}
+
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
@@ -21,8 +28,11 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   PlatformType? _currentPlatform;
-  List<dynamic> _buckets = [];
+  List<Bucket> _buckets = [];
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  // 视图模式
+  ViewMode _viewMode = ViewMode.list;
 
   @override
   void initState() {
@@ -138,6 +148,9 @@ class _MainScreenState extends State<MainScreen> {
       appBar: AppBar(
         title: Text(_currentPlatform?.displayName ?? ''),
         centerTitle: true,
+        actions: [
+          if (_currentPlatform != null) _buildViewModeToggle(),
+        ],
       ),
       drawer: Drawer(
         child: ListView(
@@ -222,27 +235,131 @@ class _MainScreenState extends State<MainScreen> {
                 child: Text('去选择平台'),
               ),
             )
-          : ListView.builder(
-              itemCount: _buckets.length,
-              itemBuilder: (context, index) {
-                final bucket = _buckets[index];
-                return ListTile(
-                  title: Text(bucket.name),
-                  onTap: () {
-                    logUi('User tapped bucket: ${bucket.name}');
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => BucketObjectsScreen(
-                          bucket: bucket,
-                          platform: _currentPlatform!,
-                        ),
-                      ),
-                    );
-                  },
-                );
-              },
-            ),
+          : _buckets.isEmpty
+              ? Center(child: Text('暂无存储桶'))
+              : _viewMode == ViewMode.grid
+                  ? _buildGridView()
+                  : _buildListView(),
     );
+  }
+
+  /// 构建视图模式切换按钮
+  Widget _buildViewModeToggle() {
+    return IconButton(
+      icon: Icon(_viewMode == ViewMode.list ? Icons.grid_view : Icons.view_list),
+      onPressed: _toggleViewMode,
+      tooltip: _viewMode == ViewMode.list ? '网格视图' : '列表视图',
+    );
+  }
+
+  void _toggleViewMode() {
+    setState(() {
+      _viewMode = _viewMode == ViewMode.list ? ViewMode.grid : ViewMode.list;
+    });
+    logUi('View mode changed to: ${_viewMode.name}');
+  }
+
+  /// 构建列表视图
+  Widget _buildListView() {
+    return ListView.builder(
+      itemCount: _buckets.length,
+      itemBuilder: (context, index) {
+        final bucket = _buckets[index];
+        return ListTile(
+          leading: Icon(Icons.storage),
+          title: Text(bucket.name),
+          subtitle: Text(bucket.region),
+          onTap: () {
+            logUi('User tapped bucket: ${bucket.name}');
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => BucketObjectsScreen(
+                  bucket: bucket,
+                  platform: _currentPlatform!,
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  /// 构建网格视图
+  Widget _buildGridView() {
+    return GridView.builder(
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: _getCrossAxisCount(),
+        crossAxisSpacing: 8,
+        mainAxisSpacing: 8,
+        childAspectRatio: 1.2,
+      ),
+      padding: EdgeInsets.all(16),
+      itemCount: _buckets.length,
+      itemBuilder: (context, index) {
+        final bucket = _buckets[index];
+        return GestureDetector(
+          onTap: () {
+            logUi('User tapped bucket: ${bucket.name}');
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => BucketObjectsScreen(
+                  bucket: bucket,
+                  platform: _currentPlatform!,
+                ),
+              ),
+            );
+          },
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(8),
+              color: Colors.white,
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.storage,
+                  size: 48,
+                  color: Colors.blue,
+                ),
+                SizedBox(height: 8),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: Text(
+                    bucket.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  bucket.region,
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// 根据屏幕宽度获取网格列数
+  int _getCrossAxisCount() {
+    final width = MediaQuery.of(context).size.width;
+    if (width > 1200) return 6;
+    if (width > 900) return 5;
+    if (width > 600) return 4;
+    if (width > 400) return 3;
+    return 2;
   }
 }
