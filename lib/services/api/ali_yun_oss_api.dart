@@ -888,7 +888,8 @@ class AliyunOssApi implements ICloudPlatformApi {
       final signature = _getSignatureV4(
         method: 'POST',
         bucketName: bucketName,
-        objectKey: '?delete',
+        objectKey: '',  // 空字符串，path为 /
+        queryParams: {'delete': ''},  // ?delete 作为查询参数
         headers: headers,
       );
       headers['Authorization'] = signature;

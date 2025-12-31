@@ -669,18 +669,97 @@ class TencentCosApi implements ICloudPlatformApi {
     required String region,
     required List<String> objectKeys,
   }) async {
-    // 腾讯云支持批量删除，但这里简化实现逐个删除
-    for (final key in objectKeys) {
-      final result = await deleteObject(
-        bucketName: bucketName,
-        region: region,
-        objectKey: key,
-      );
-      if (!result.success) {
-        return result;
-      }
+    if (objectKeys.isEmpty) {
+      return ApiResponse.success(null);
     }
-    return ApiResponse.success(null);
+
+    try {
+      final host = '$bucketName.cos.$region.myqcloud.com';
+      final url = 'https://$host/?delete';
+      final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      final end = now + 3600;
+      final keyTime = '$now;$end';
+
+      // 生成 GMT 格式的 Date 头部
+      final date = HttpDate.format(DateTime.now().toUtc());
+
+      // 构建批量删除的XML请求体
+      final xmlBody = StringBuffer();
+      xmlBody.write('<?xml version="1.0" encoding="UTF-8"?>');
+      xmlBody.write('<Delete>');
+      xmlBody.write('<Quiet>true</Quiet>');
+      for (final key in objectKeys) {
+        xmlBody.write('<Object><Key>${_escapeXml(key)}</Key></Object>');
+      }
+      xmlBody.write('</Delete>');
+
+      final xmlBodyStr = xmlBody.toString();
+      // 计算Content-MD5（Base64编码的MD5哈希原始字节）
+      final md5Digest = md5.convert(utf8.encode(xmlBodyStr));
+      final contentMd5 = base64Encode(md5Digest.bytes);
+
+      // 生成签名时需要包含 Host 和 Date 头部
+      // queryParams 用于签名的 CanonicalRequest HttpParameters
+      final queryParams = {'delete': ''};
+      final headersForSign = {'host': host, 'date': date};
+      final signature = _getSignature(
+        'POST',
+        '/',
+        headersForSign,
+        queryParams: queryParams,
+        secretId: credential.secretId,
+        secretKey: credential.secretKey,
+      );
+
+      // 生成 urlParamList（按字典序排序，只包含参数名，不包含值）
+      final sortedParamKeys = queryParams.keys.map((k) => _urlEncode(k)).toList()..sort();
+      final urlParamList = sortedParamKeys.join(';');
+
+      final headers = {
+        'Authorization':
+            'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$keyTime&q-key-time=$keyTime&q-header-list=date;host&q-url-param-list=$urlParamList&q-signature=$signature',
+        'Content-Type': 'application/xml',
+        'Content-MD5': contentMd5,
+        'Host': host,
+        'Date': date,
+      };
+
+      log('[TencentCOS] 批量删除对象，数量: ${objectKeys.length}');
+      final response = await _dio.post(
+        url,
+        data: xmlBodyStr,
+        options: Options(headers: headers),
+      );
+
+      if (response.statusCode == 200) {
+        log('[TencentCOS] 批量删除成功');
+        return ApiResponse.success(null);
+      } else {
+        final errorData = response.data?.toString() ?? '';
+        logError('[TencentCOS] 批量删除失败: ${response.statusCode}, 响应: $errorData');
+        return ApiResponse.error(
+          'Failed to delete objects',
+          statusCode: response.statusCode,
+        );
+      }
+    } on DioException catch (e) {
+      final errorDetail = _parseTencentCloudError(e);
+      logError('[TencentCOS] DioException: $errorDetail');
+      return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
+    } catch (e, stack) {
+      logError('[TencentCOS] 异常: $e', stack);
+      return ApiResponse.error(e.toString());
+    }
+  }
+
+  /// XML特殊字符转义
+  String _escapeXml(String input) {
+    return input
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&apos;');
   }
 
   @override

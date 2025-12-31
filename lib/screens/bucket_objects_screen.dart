@@ -1717,22 +1717,21 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     int successCount = 0;
     int failCount = 0;
 
-    // 逐个删除文件
-    for (final obj in selectedFiles) {
-      logUi('Deleting: ${obj.name}');
-      final result = await api.deleteObject(
-        bucketName: widget.bucket.name,
-        region: widget.bucket.region,
-        objectKey: obj.key,
-      );
+    // 批量删除文件
+    final objectKeys = selectedFiles.map((obj) => obj.key).toList();
+    logUi('Deleting: ${objectKeys.length} objects in batch');
+    final result = await api.deleteObjects(
+      bucketName: widget.bucket.name,
+      region: widget.bucket.region,
+      objectKeys: objectKeys,
+    );
 
-      if (result.success) {
-        successCount++;
-        logUi('Deleted: ${obj.name}');
-      } else {
-        failCount++;
-        logError('Delete failed: ${obj.name}, ${result.errorMessage}');
-      }
+    if (result.success) {
+      successCount = objectKeys.length;
+      logUi('Batch delete completed: $successCount objects');
+    } else {
+      failCount = objectKeys.length;
+      logError('Batch delete failed: ${result.errorMessage}');
     }
 
     if (!mounted) return;
