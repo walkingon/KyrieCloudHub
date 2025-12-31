@@ -45,6 +45,14 @@ class _PlatformSelectionScreenState extends State<PlatformSelectionScreen> {
         children: PlatformType.values.map((platform) {
           final isLoggedIn = _loginStatus[platform] ?? false;
           return ListTile(
+            leading: Container(
+              width: 8,
+              height: 40,
+              decoration: BoxDecoration(
+                color: platform.color,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
             title: Text(platform.displayName),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,

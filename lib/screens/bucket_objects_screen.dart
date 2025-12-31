@@ -194,6 +194,8 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     return Scaffold(
       appBar: AppBar(
         title: _buildTitle(),
+        backgroundColor: widget.platform.color,
+        foregroundColor: Colors.white,
         actions: [
           if (!_isSelectionMode) _buildViewModeToggle(),
           ..._buildSelectionActions(),

@@ -148,6 +148,8 @@ class _MainScreenState extends State<MainScreen> {
       appBar: AppBar(
         title: Text(_currentPlatform?.displayName ?? ''),
         centerTitle: true,
+        backgroundColor: _currentPlatform?.color,
+        foregroundColor: Colors.white,
         actions: [
           if (_currentPlatform != null) _buildViewModeToggle(),
         ],

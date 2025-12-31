@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 enum PlatformType {
   tencentCloud,
   aliCloud,
@@ -19,6 +21,15 @@ extension PlatformTypeExtension on PlatformType {
         return 'tencent_cloud';
       case PlatformType.aliCloud:
         return 'ali_cloud';
+    }
+  }
+
+  Color get color {
+    switch (this) {
+      case PlatformType.tencentCloud:
+        return const Color.fromRGBO(75, 115, 238, 1);
+      case PlatformType.aliCloud:
+        return const Color.fromRGBO(236, 115, 46, 1);
     }
   }
 
