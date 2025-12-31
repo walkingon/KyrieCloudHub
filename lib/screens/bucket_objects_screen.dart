@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import '../models/bucket.dart';
 import '../models/object_file.dart';
 import '../models/platform_type.dart';
+import '../services/api/cloud_platform_api.dart';
 import '../services/cloud_platform_factory.dart';
 import '../services/storage_service.dart';
 import '../utils/logger.dart';
@@ -1294,24 +1295,108 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       return;
     }
 
-    logUi('Starting delete: ${obj.key}');
+    // 如果是文件夹，需要递归删除文件夹内的所有对象
+    if (obj.type == ObjectType.folder) {
+      await _deleteFolder(api, obj.key);
+    } else {
+      logUi('Starting delete: ${obj.key}');
+      final result = await api.deleteObject(
+        bucketName: widget.bucket.name,
+        region: widget.bucket.region,
+        objectKey: obj.key,
+      );
+
+      if (!mounted) return;
+
+      if (result.success) {
+        logUi('Delete successful: ${obj.name}');
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('删除成功: ${obj.name}')),
+        );
+        // 刷新文件列表
+        _refresh();
+      } else {
+        logError('Delete failed: ${result.errorMessage}');
+        _showErrorSnackBar('删除失败: ${result.errorMessage}');
+      }
+    }
+  }
+
+  /// 递归删除文件夹及其所有内容
+  Future<void> _deleteFolder(ICloudPlatformApi api, String folderKey) async {
+    logUi('Starting delete folder: $folderKey');
+
+    // 获取文件夹内的所有对象（不使用delimiter，递归列出所有对象）
+    String? marker;
+    int totalFailed = 0;
+
+    while (true) {
+      final listResult = await api.listObjects(
+        bucketName: widget.bucket.name,
+        region: widget.bucket.region,
+        prefix: folderKey,
+        delimiter: '', // 不使用delimiter，获取所有对象
+        maxKeys: 1000,
+        marker: marker,
+      );
+
+      if (!mounted) return;
+
+      if (!listResult.success || listResult.data == null) {
+        logError('Failed to list folder contents: ${listResult.errorMessage}');
+        _showErrorSnackBar('删除失败：无法列出文件夹内容');
+        return;
+      }
+
+      final objects = listResult.data!.objects;
+
+      // 删除所有找到的对象
+      for (final obj in objects) {
+        // 跳过文件夹标记对象本身（最后删除）
+        if (obj.key == folderKey) continue;
+
+        logUi('Deleting: ${obj.key}');
+        final deleteResult = await api.deleteObject(
+          bucketName: widget.bucket.name,
+          region: widget.bucket.region,
+          objectKey: obj.key,
+        );
+
+        if (deleteResult.success) {
+          logUi('Deleted: ${obj.key}');
+        } else {
+          totalFailed++;
+          logError('Failed to delete: ${obj.key}, ${deleteResult.errorMessage}');
+        }
+      }
+
+      // 检查是否还有更多对象
+      if (listResult.data!.isTruncated) {
+        marker = listResult.data!.nextMarker;
+      } else {
+        break;
+      }
+    }
+
+    // 最后删除文件夹标记对象
+    logUi('Deleting folder marker: $folderKey');
     final result = await api.deleteObject(
       bucketName: widget.bucket.name,
       region: widget.bucket.region,
-      objectKey: obj.key,
+      objectKey: folderKey,
     );
 
     if (!mounted) return;
 
     if (result.success) {
-      logUi('Delete successful: ${obj.name}');
+      logUi('Delete folder successful: $folderKey');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('删除成功: ${obj.name}')),
+        SnackBar(content: Text('已删除文件夹 "${_getFolderName(folderKey)}"${totalFailed > 0 ? '，$totalFailed 个失败' : ''}')),
       );
       // 刷新文件列表
       _refresh();
     } else {
-      logError('Delete failed: ${result.errorMessage}');
+      logError('Delete folder failed: ${result.errorMessage}');
       _showErrorSnackBar('删除失败: ${result.errorMessage}');
     }
   }
@@ -1655,6 +1740,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('成功删除 $successCount 个文件${failCount > 0 ? '，$failCount 个失败' : ''}')),
     );
+    // 等待一段时间后再刷新（腾讯云COS使用最终一致性模型）
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (!mounted) return;
     // 刷新文件列表并退出选择模式
     _refresh();
     _exitSelectionMode();
@@ -1691,5 +1779,13 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
     }
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+  }
+
+  /// 从文件夹key中提取文件夹名称（如 "AAA/" -> "AAA"）
+  String _getFolderName(String folderKey) {
+    if (folderKey.endsWith('/')) {
+      folderKey = folderKey.substring(0, folderKey.length - 1);
+    }
+    return folderKey.split('/').where((e) => e.isNotEmpty).lastOrNull ?? folderKey;
   }
 }
