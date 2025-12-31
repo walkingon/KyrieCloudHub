@@ -1066,12 +1066,16 @@ class AliyunOssApi implements ICloudPlatformApi {
   }) async {
     log('[AliyunOSS] 开始递归复制文件夹: $sourceFolderKey -> $targetFolderKey');
 
+    // 确保源和目标路径都以 / 结尾
+    final normalizedSourceKey = sourceFolderKey.endsWith('/') ? sourceFolderKey : '$sourceFolderKey/';
+    final normalizedTargetKey = targetFolderKey.endsWith('/') ? targetFolderKey : '$targetFolderKey/';
+
     // 首先复制文件夹标记
     final folderMarkerCopy = await _copyObject(
       bucketName: bucketName,
       region: region,
-      sourceKey: sourceFolderKey,
-      targetKey: targetFolderKey,
+      sourceKey: normalizedSourceKey,
+      targetKey: normalizedTargetKey,
     );
 
     if (!folderMarkerCopy.success) {
@@ -1088,7 +1092,7 @@ class AliyunOssApi implements ICloudPlatformApi {
       final listResult = await listObjects(
         bucketName: bucketName,
         region: region,
-        prefix: sourceFolderKey,
+        prefix: normalizedSourceKey,
         delimiter: '', // 不使用delimiter，获取所有对象
         maxKeys: 1000,
         marker: marker,
@@ -1102,13 +1106,13 @@ class AliyunOssApi implements ICloudPlatformApi {
       final objects = listResult.data!.objects;
 
       // 排除文件夹标记本身
-      final fileObjects = objects.where((obj) => obj.key != sourceFolderKey).toList();
+      final fileObjects = objects.where((obj) => obj.key != normalizedSourceKey).toList();
 
       // 复制每个文件
       for (final obj in fileObjects) {
-        // 计算目标key：将源文件夹前缀替换为目标文件夹前缀
-        final relativePath = obj.key.substring(sourceFolderKey.length);
-        final targetKey = '$targetFolderKey$relativePath';
+        // 计算相对路径：从源文件夹前缀之后的部分
+        final relativePath = obj.key.substring(normalizedSourceKey.length);
+        final targetKey = '$normalizedTargetKey$relativePath';
 
         log('[AliyunOSS] 复制文件: ${obj.key} -> $targetKey');
         final copyResult = await _copyObject(
@@ -1216,6 +1220,36 @@ class AliyunOssApi implements ICloudPlatformApi {
       logError('[AliyunOSS] 删除文件夹标记失败: ${result.errorMessage}');
       return ApiResponse.error('删除文件夹标记失败: ${result.errorMessage}');
     }
+  }
+
+  @override
+  Future<ApiResponse<void>> copyObject({
+    required String bucketName,
+    required String region,
+    required String sourceKey,
+    required String targetKey,
+  }) {
+    return _copyObject(
+      bucketName: bucketName,
+      region: region,
+      sourceKey: sourceKey,
+      targetKey: targetKey,
+    );
+  }
+
+  @override
+  Future<ApiResponse<void>> copyFolder({
+    required String bucketName,
+    required String region,
+    required String sourceFolderKey,
+    required String targetFolderKey,
+  }) {
+    return _copyFolder(
+      bucketName: bucketName,
+      region: region,
+      sourceFolderKey: sourceFolderKey,
+      targetFolderKey: targetFolderKey,
+    );
   }
 
   /// 复制对象（内部方法）

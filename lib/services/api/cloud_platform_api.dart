@@ -116,4 +116,26 @@ abstract class ICloudPlatformApi {
     required String region,
     required String folderKey,
   });
+
+  /// 复制对象到目标路径
+  ///
+  /// [sourceKey] 源对象key
+  /// [targetKey] 目标对象key
+  Future<ApiResponse<void>> copyObject({
+    required String bucketName,
+    required String region,
+    required String sourceKey,
+    required String targetKey,
+  });
+
+  /// 递归复制文件夹及其所有内容
+  ///
+  /// [sourceFolderKey] 源文件夹key
+  /// [targetFolderKey] 目标文件夹key
+  Future<ApiResponse<void>> copyFolder({
+    required String bucketName,
+    required String region,
+    required String sourceFolderKey,
+    required String targetFolderKey,
+  });
 }

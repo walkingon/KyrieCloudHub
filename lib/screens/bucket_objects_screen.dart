@@ -85,6 +85,15 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     _loadObjects(refresh: true);
   }
 
+  @override
+  void dispose() {
+    // 退出界面时清理剪贴板（不支持跨存储桶粘贴）
+    // 注意：这里直接操作静态变量，不调用 setState，因为 widget 即将销毁
+    _clipboardFiles.clear();
+    _isCutOperation = false;
+    super.dispose();
+  }
+
   Future<void> _loadObjects({bool refresh = false}) async {
     if (refresh) {
       setState(() {
@@ -215,10 +224,31 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       body: _buildBody(),
       floatingActionButton: _isSelectionMode
           ? null
-          : FloatingActionButton(
-              tooltip: '添加',
-              onPressed: _showAddOptions,
-              child: Icon(Icons.add),
+          : Stack(
+              children: [
+                FloatingActionButton(
+                  tooltip: '添加',
+                  onPressed: _showAddOptions,
+                  child: Icon(Icons.add),
+                ),
+                if (_hasClipboardContent)
+                  Positioned(
+                    right: 8,
+                    top: 8,
+                    child: Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: Colors.white,
+                          width: 2,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
     );
   }
@@ -333,13 +363,39 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     }
   }
 
-  /// 显示添加选项（上传文件/新建文件夹）
+  /// 显示添加选项（上传文件/新建文件夹/粘贴）
   void _showAddOptions() {
     showModalBottomSheet(
       context: context,
       builder: (context) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (_hasClipboardContent)
+            ListTile(
+              leading: Stack(
+                children: [
+                  Icon(Icons.content_paste),
+                  Positioned(
+                    right: -2,
+                    top: -2,
+                    child: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              title: Text('粘贴'),
+              subtitle: Text('${_clipboardFiles.length} 个文件'),
+              onTap: () {
+                Navigator.pop(context);
+                _handlePaste();
+              },
+            ),
           ListTile(
             leading: Icon(Icons.file_upload),
             title: Text('上传文件'),
@@ -1072,21 +1128,21 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
             },
           ),
           ListTile(
-            leading: Icon(Icons.drive_file_move),
-            title: Text('移动到'),
+            leading: Icon(Icons.cut),
+            title: Text('剪切'),
             onTap: () {
               Navigator.pop(context);
-              logUi('User selected action: 移动到 for ${obj.name}');
-              _handleMoveTo(obj);
+              logUi('User selected action: 剪切 for ${obj.name}');
+              _handleCut(obj);
             },
           ),
           ListTile(
             leading: Icon(Icons.copy),
-            title: Text('复制到'),
+            title: Text('复制'),
             onTap: () {
               Navigator.pop(context);
-              logUi('User selected action: 复制到 for ${obj.name}');
-              _handleCopyTo(obj);
+              logUi('User selected action: 复制 for ${obj.name}');
+              _handleCopy(obj);
             },
           ),
           // 仅文件夹有的选项
@@ -1238,16 +1294,217 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     }
   }
 
-  /// 移动到处理（留空）
-  void _handleMoveTo(ObjectFile obj) {
-    // TODO: 实现移动到逻辑
-    logUi('Move to not implemented yet for: ${obj.name}');
+  /// 剪贴板状态（用于剪切/复制-粘贴功能）
+  static List<ObjectFile> _clipboardFiles = [];
+  static bool _isCutOperation = false;
+
+  /// 剪切处理
+  void _handleCut(ObjectFile obj) {
+    logUi('Cut: ${obj.name}');
+    _clipboardFiles = [obj];
+    _isCutOperation = true;
+    setState(() {}); // 触发UI更新以显示红点
   }
 
-  /// 复制到处理（留空）
-  void _handleCopyTo(ObjectFile obj) {
-    // TODO: 实现复制到逻辑
-    logUi('Copy to not implemented yet for: ${obj.name}');
+  /// 复制处理
+  void _handleCopy(ObjectFile obj) {
+    logUi('Copy: ${obj.name}');
+    _clipboardFiles = [obj];
+    _isCutOperation = false;
+    setState(() {}); // 触发UI更新以显示红点
+  }
+
+  /// 清除剪贴板
+  void _clearClipboard() {
+    _clipboardFiles.clear();
+    _isCutOperation = false;
+    // 只有在 mounted 时才调用 setState
+    if (mounted) {
+      setState(() {});
+    }
+    logUi('Clipboard cleared');
+  }
+
+  /// 是否有内容可以粘贴
+  bool get _hasClipboardContent => _clipboardFiles.isNotEmpty;
+
+  /// 检查源文件夹是否是目标路径的父目录（即防止无限嵌套）
+  ///
+  /// 例如：源文件夹为 `bbb/ccc/`，目标路径为 `bbb/ccc/ddd/`，则不允许粘贴
+  bool _isSourceInTargetPath(String sourceKey, String targetPrefix) {
+    // 只对文件夹进行检查
+    if (!sourceKey.endsWith('/')) return false;
+
+    // 确保 sourceKey 格式一致（以 / 结尾）
+    final normalizedSource = sourceKey.endsWith('/') ? sourceKey : '$sourceKey/';
+    final normalizedTarget = targetPrefix.endsWith('/') ? targetPrefix : '$targetPrefix/';
+
+    // 如果目标路径以源路径开头，说明源是目标的父目录
+    return normalizedTarget.startsWith(normalizedSource);
+  }
+
+  /// 粘贴处理
+  Future<void> _handlePaste() async {
+    if (!_hasClipboardContent) {
+      _showErrorSnackBar('剪贴板为空');
+      return;
+    }
+
+    final targetPrefix = _currentPrefix;
+
+    // 检查是否在同一个目录下操作（复制操作允许，但应该给出提示；剪切操作不允许）
+    for (final obj in _clipboardFiles) {
+      // 检查源文件是否在当前目录的父目录链中（即粘贴后会导致无限嵌套）
+      if (_isSourceInTargetPath(obj.key, targetPrefix)) {
+        _showErrorSnackBar('无法将文件夹粘贴到其子目录中');
+        return;
+      }
+
+      // 检查目标目录是否已存在同名文件或文件夹
+      final targetKey = targetPrefix + obj.name;
+      if (_objects.any((existing) => existing.key == targetKey || existing.name == obj.name)) {
+        _showErrorSnackBar('目标目录已存在 "${obj.name}"，无法粘贴');
+        return;
+      }
+    }
+
+    logUi('Pasting ${_clipboardFiles.length} items to: $targetPrefix, isCut: $_isCutOperation');
+
+    // 获取凭证并创建API
+    final credential = await _storage.getCredential(widget.platform);
+    if (credential == null) {
+      _showErrorSnackBar('未找到登录凭证');
+      return;
+    }
+
+    final api = _factory.createApi(widget.platform, credential: credential);
+    if (api == null) {
+      _showErrorSnackBar('API创建失败');
+      return;
+    }
+
+    int successCount = 0;
+    int failCount = 0;
+
+    // 显示进度对话框
+    int currentIndex = 0;
+    String currentFile = '';
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Text(_isCutOperation ? '移动中' : '复制中'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('正在处理: $currentFile', maxLines: 2),
+                  SizedBox(height: 16),
+                  SizedBox(
+                    width: 200,
+                    child: LinearProgressIndicator(
+                      value: _clipboardFiles.isNotEmpty ? currentIndex / _clipboardFiles.length : 0,
+                    ),
+                  ),
+                  SizedBox(height: 8),
+                  Text('$currentIndex/${_clipboardFiles.length}'),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+    // 逐个处理文件
+    for (final obj in _clipboardFiles) {
+      currentIndex++;
+      currentFile = obj.name;
+
+      try {
+        // 计算目标key
+        final targetKey = targetPrefix + obj.name;
+
+        // 判断是文件夹还是文件
+        if (obj.type == ObjectType.folder) {
+          // 文件夹需要递归复制
+          final copyResult = await api.copyFolder(
+            bucketName: widget.bucket.name,
+            region: widget.bucket.region,
+            sourceFolderKey: obj.key,
+            targetFolderKey: targetKey,
+          );
+
+          if (!copyResult.success) {
+            failCount++;
+            logError('Failed to copy folder: ${obj.name}, ${copyResult.errorMessage}');
+            continue;
+          }
+        } else {
+          // 文件直接复制
+          final copyResult = await api.copyObject(
+            bucketName: widget.bucket.name,
+            region: widget.bucket.region,
+            sourceKey: obj.key,
+            targetKey: targetKey,
+          );
+
+          if (!copyResult.success) {
+            failCount++;
+            logError('Failed to copy: ${obj.name}, ${copyResult.errorMessage}');
+            continue;
+          }
+        }
+
+        // 如果是剪切操作，删除源文件
+        if (_isCutOperation) {
+          if (obj.type == ObjectType.folder) {
+            await api.deleteFolder(
+              bucketName: widget.bucket.name,
+              region: widget.bucket.region,
+              folderKey: obj.key,
+            );
+          } else {
+            await api.deleteObject(
+              bucketName: widget.bucket.name,
+              region: widget.bucket.region,
+              objectKey: obj.key,
+            );
+          }
+        }
+
+        successCount++;
+        logUi('Successfully ${_isCutOperation ? 'moved' : 'copied'}: ${obj.name}');
+      } catch (e) {
+        failCount++;
+        logError('Failed to process: ${obj.name}, $e');
+      }
+
+      // 检查是否已卸载
+      if (!mounted) return;
+    }
+
+    // 关闭进度对话框
+    if (mounted) {
+      Navigator.of(context).pop();
+
+      // 清除剪贴板
+      _clearClipboard();
+
+      // 显示结果
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(_isCutOperation
+              ? '成功移动 $successCount 个${failCount > 0 ? '，$failCount 个失败' : ''}'
+              : '成功复制 $successCount 个${failCount > 0 ? '，$failCount 个失败' : ''}'),
+        ),
+      );
+
+      // 刷新列表
+      _refresh();
+    }
   }
 
   /// 文件夹下载处理
