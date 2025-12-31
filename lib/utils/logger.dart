@@ -5,19 +5,14 @@ import 'package:intl/intl.dart';
 
 /// 日志类型枚举
 enum LogType {
-  ui,       // 用户界面操作
-  network,  // 网络请求与响应
-  error,    // 运行时异常错误
-  info,     // 普通信息
+  ui, // 用户界面操作
+  network, // 网络请求与响应
+  error, // 运行时异常错误
+  info, // 普通信息
 }
 
 /// 日志级别
-enum LogLevel {
-  debug,
-  info,
-  warning,
-  error,
-}
+enum LogLevel { debug, info, warning, error }
 
 class Logger {
   static final Logger _instance = Logger._internal();
@@ -29,7 +24,7 @@ class Logger {
   File? _logFile;
   final DateFormat _dateFormat = DateFormat('yyyy-MM-dd HH:mm:ss.SSS');
   static const int _maxFileSize = 1024 * 1024; // 1MB
-  static const int _maxFileCount = 5; // 最多保留5个日志文件
+  static const int _maxFileCount = 2; // 最多保留2个日志文件
 
   bool _initialized = false;
   String? _logFilePath;
@@ -45,9 +40,19 @@ class Logger {
 
       // 同步清理旧日志（使用同步方法确保立即可用）
       try {
-        final files = directory.listSync().whereType<File>().where(
-          (f) => f.path.endsWith('.log') && f.path.contains('kyrie_cloud_hub')
-        ).toList()..sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
+        final files =
+            directory
+                .listSync()
+                .whereType<File>()
+                .where(
+                  (f) =>
+                      f.path.endsWith('.log') &&
+                      f.path.contains('kyrie_cloud_hub'),
+                )
+                .toList()
+              ..sort(
+                (a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()),
+              );
 
         if (files.length > _maxFileCount) {
           for (int i = _maxFileCount; i < files.length; i++) {
@@ -113,7 +118,11 @@ class Logger {
   void network(String message) => log(LogType.network, message);
 
   /// 网络请求开始
-  void networkRequest(String method, String url, [Map<String, dynamic>? params]) {
+  void networkRequest(
+    String method,
+    String url, [
+    Map<String, dynamic>? params,
+  ]) {
     String paramsStr = '';
     if (params != null) {
       // 处理大型数据（如 Uint8List），避免打印巨量数据
@@ -145,7 +154,11 @@ class Logger {
           : ' Response: $responseStrRaw';
     }
     final level = statusCode >= 400 ? LogLevel.error : LogLevel.info;
-    log(LogType.network, '[RESPONSE] $url Status: $statusCode$responseStr', level);
+    log(
+      LogType.network,
+      '[RESPONSE] $url Status: $statusCode$responseStr',
+      level,
+    );
   }
 
   /// 网络错误日志
@@ -153,7 +166,8 @@ class Logger {
     String errorStr = error.toString();
     // 限制错误信息长度
     if (errorStr.length > 2000) {
-      errorStr = '${errorStr.substring(0, 2000)}... [${errorStr.length} chars total]';
+      errorStr =
+          '${errorStr.substring(0, 2000)}... [${errorStr.length} chars total]';
     }
     log(LogType.network, '[ERROR] $url Error: $errorStr', LogLevel.error);
   }
@@ -205,18 +219,23 @@ final logger = Logger();
 void logUi(String message) => logger.ui(message);
 
 /// 便捷函数：记录网络请求
-void logNetworkRequest(String method, String url, [Map<String, dynamic>? params]) =>
-    logger.networkRequest(method, url, params);
+void logNetworkRequest(
+  String method,
+  String url, [
+  Map<String, dynamic>? params,
+]) => logger.networkRequest(method, url, params);
 
 /// 便捷函数：记录网络响应
 void logNetworkResponse(String url, int statusCode, [dynamic response]) =>
     logger.networkResponse(url, statusCode, response);
 
 /// 便捷函数：记录网络错误
-void logNetworkError(String url, dynamic error) => logger.networkError(url, error);
+void logNetworkError(String url, dynamic error) =>
+    logger.networkError(url, error);
 
 /// 便捷函数：记录错误
-void logError(String message, [dynamic stackTrace]) => logger.error(message, stackTrace);
+void logError(String message, [dynamic stackTrace]) =>
+    logger.error(message, stackTrace);
 
 /// 原始日志函数（向后兼容）- 同时输出到控制台和写入文件
 void log(dynamic message) {
