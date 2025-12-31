@@ -628,7 +628,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         final isFolder = obj.type != ObjectType.file;
 
         return ListTile(
-          leading: Icon(_getObjectIcon(obj)),
+          leading: Icon(_getObjectIcon(obj), color: _getObjectColor(obj)),
           title: Text(obj.name, maxLines: 1, overflow: TextOverflow.ellipsis),
           subtitle: isFolder
               ? null
@@ -713,7 +713,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                 Icon(
                   _getObjectIcon(obj),
                   size: 48,
-                  color: isFolder ? Colors.amber : Colors.blueGrey,
+                  color: _getObjectColor(obj),
                 ),
                 SizedBox(height: 8),
                 Padding(
@@ -860,6 +860,97 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
       default:
         return Icons.insert_drive_file;
+    }
+  }
+
+  /// 根据文件类型获取颜色
+  Color _getObjectColor(ObjectFile obj) {
+    if (obj.type == ObjectType.folder) {
+      return Colors.amber.shade700;
+    }
+
+    final ext = obj.extension.toLowerCase();
+    switch (ext) {
+      // 图片 - 紫色
+      case 'jpg':
+      case 'jpeg':
+      case 'png':
+      case 'gif':
+      case 'bmp':
+      case 'webp':
+      case 'svg':
+        return Colors.purple;
+
+      // 视频 - 粉色
+      case 'mp4':
+      case 'avi':
+      case 'mkv':
+      case 'mov':
+      case 'wmv':
+      case 'flv':
+      case 'webm':
+        return Colors.pink;
+
+      // 音频 - 青色
+      case 'mp3':
+      case 'wav':
+      case 'flac':
+      case 'aac':
+      case 'ogg':
+      case 'm4a':
+        return Colors.cyan;
+
+      // 文档 - 蓝色
+      case 'pdf':
+      case 'doc':
+      case 'docx':
+      case 'txt':
+      case 'rtf':
+        return Colors.blue;
+
+      // 表格 - 绿色
+      case 'xls':
+      case 'xlsx':
+      case 'csv':
+        return Colors.green;
+
+      // PPT - 橙色
+      case 'ppt':
+      case 'pptx':
+        return Colors.orange;
+
+      // 压缩文件 - 棕色
+      case 'zip':
+      case 'rar':
+      case '7z':
+      case 'tar':
+      case 'gz':
+        return Colors.brown;
+
+      // 代码 - 深蓝色
+      case 'dart':
+      case 'js':
+      case 'ts':
+      case 'py':
+      case 'java':
+      case 'c':
+      case 'cpp':
+      case 'h':
+      case 'html':
+      case 'css':
+      case 'json':
+      case 'yaml':
+      case 'yml':
+        return Colors.indigo;
+
+      // 可执行文件 - 红色
+      case 'exe':
+      case 'app':
+      case 'dmg':
+        return Colors.red;
+
+      default:
+        return Colors.grey;
     }
   }
 
