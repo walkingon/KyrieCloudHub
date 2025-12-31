@@ -39,7 +39,7 @@ class AliyunOssApi implements ICloudPlatformApi {
 
     // 2. 确定地域
     final region = _getRegion();
-    log('[AliyunOSS] 签名参数: dateStr=$dateStr, region=$region');
+    //log('[AliyunOSS] 签名参数: dateStr=$dateStr, region=$region');
 
     // 3. 构建参与签名的头部列表（按小写字母排序）
     final signingHeaders = <String>[];
@@ -55,7 +55,7 @@ class AliyunOssApi implements ICloudPlatformApi {
     }
     signingHeaders.sort();
     final signedHeadersStr = signingHeaders.join(';');
-    log('[AliyunOSS] SignedHeaders: $signedHeadersStr');
+    //log('[AliyunOSS] SignedHeaders: $signedHeadersStr');
 
     // 4. 构建 CanonicalizedHeader
     // 注意：根据阿里云文档，每个header格式为 "key:value\n"，头部之间无额外换行
@@ -66,7 +66,7 @@ class AliyunOssApi implements ICloudPlatformApi {
     }
     // CanonicalHeaders: 每个header一行，header之间无空行
     final canonicalHeadersStr = canonicalHeaders.join('\n');
-    log('[AliyunOSS] CanonicalHeaders: """$canonicalHeadersStr"""');
+    //log('[AliyunOSS] CanonicalHeaders: """$canonicalHeadersStr"""');
 
     // 5. 构建 Canonical URI 和 Canonical Query String
     // 注意：Canonical URI 需要 URI 编码，但正斜杠 / 不需要编码
@@ -81,22 +81,24 @@ class AliyunOssApi implements ICloudPlatformApi {
         canonicalUri = '/$bucketName/';
       }
     }
-    log('[AliyunOSS] CanonicalUri: $canonicalUri');
+    //log('[AliyunOSS] CanonicalUri: $canonicalUri');
 
     // 构建 Canonical Query String（与阿里云官方SDK一致：空值不添加等号）
     String canonicalQueryString = '';
     if (queryParams != null && queryParams.isNotEmpty) {
       final sortedParams = queryParams.entries.toList()
         ..sort((a, b) => a.key.compareTo(b.key));
-      canonicalQueryString = sortedParams.map((e) {
-        final encodedKey = Uri.encodeComponent(e.key);
-        if (e.value.isEmpty) {
-          return encodedKey; // 空值不添加等号
-        }
-        return '$encodedKey=${Uri.encodeComponent(e.value)}';
-      }).join('&');
+      canonicalQueryString = sortedParams
+          .map((e) {
+            final encodedKey = Uri.encodeComponent(e.key);
+            if (e.value.isEmpty) {
+              return encodedKey; // 空值不添加等号
+            }
+            return '$encodedKey=${Uri.encodeComponent(e.value)}';
+          })
+          .join('&');
     }
-    log('[AliyunOSS] CanonicalQueryString: """$canonicalQueryString"""');
+    //log('[AliyunOSS] CanonicalQueryString: """$canonicalQueryString"""');
 
     // 6. 构建 CanonicalRequest
     // 格式: HTTP Verb + "\n" + Canonical URI + "\n" + Canonical Query String + "\n" +
@@ -106,16 +108,16 @@ class AliyunOssApi implements ICloudPlatformApi {
       method.toUpperCase(),
       canonicalUri,
       canonicalQueryString,
-      '$canonicalHeadersStr\n',  // Headers 末尾换行
-      signedHeadersStr,          // AdditionalHeaders（末尾无换行，由下一个join添加）
+      '$canonicalHeadersStr\n', // Headers 末尾换行
+      signedHeadersStr, // AdditionalHeaders（末尾无换行，由下一个join添加）
       'UNSIGNED-PAYLOAD',
     ].join('\n');
 
-    log('[AliyunOSS] CanonicalRequest: """$canonicalRequest"""');
+    //log('[AliyunOSS] CanonicalRequest: """$canonicalRequest"""');
 
     // 7. 构建 StringToSign
     final canonicalRequestHash = _sha256Hex(canonicalRequest);
-    log('[AliyunOSS] CanonicalRequestHash: $canonicalRequestHash');
+    //log('[AliyunOSS] CanonicalRequestHash: $canonicalRequestHash');
 
     final stringToSign = [
       'OSS4-HMAC-SHA256',
@@ -124,37 +126,40 @@ class AliyunOssApi implements ICloudPlatformApi {
       canonicalRequestHash,
     ].join('\n');
 
-    log('[AliyunOSS] StringToSign: """$stringToSign"""');
+    //log('[AliyunOSS] StringToSign: """$stringToSign"""');
 
     // 8. 计算签名密钥
     // 使用字节进行HMAC计算，确保正确传递二进制数据
     final dateKeyInput = 'aliyun_v4${credential.secretKey}';
-    log('[AliyunOSS] DateKeyInput: $dateKeyInput (长度: ${dateKeyInput.length})');
+    //log('[AliyunOSS] DateKeyInput: $dateKeyInput (长度: ${dateKeyInput.length})');
     final kDateBytes = _hmacSha256Bytes(dateKeyInput, dateStr);
-    log('[AliyunOSS] KDate (hex): ${_bytesToHex(kDateBytes)}');
+    //log('[AliyunOSS] KDate (hex): ${_bytesToHex(kDateBytes)}');
 
     final kRegionBytes = _hmacSha256WithBytesKey(kDateBytes, region);
-    log('[AliyunOSS] KRegion (hex): ${_bytesToHex(kRegionBytes)}');
+    //log('[AliyunOSS] KRegion (hex): ${_bytesToHex(kRegionBytes)}');
 
     final kServiceBytes = _hmacSha256WithBytesKey(kRegionBytes, 'oss');
-    log('[AliyunOSS] KService (hex): ${_bytesToHex(kServiceBytes)}');
+    //log('[AliyunOSS] KService (hex): ${_bytesToHex(kServiceBytes)}');
 
-    final kSigningBytes = _hmacSha256WithBytesKey(kServiceBytes, 'aliyun_v4_request');
-    log('[AliyunOSS] KSigning (hex): ${_bytesToHex(kSigningBytes)}');
+    final kSigningBytes = _hmacSha256WithBytesKey(
+      kServiceBytes,
+      'aliyun_v4_request',
+    );
+    //log('[AliyunOSS] KSigning (hex): ${_bytesToHex(kSigningBytes)}');
 
     // 9. 计算签名（使用字节key）
     final signature = _hmacSha256WithBytesKeyHex(kSigningBytes, stringToSign);
-    log('[AliyunOSS] Signature: $signature');
+    //log('[AliyunOSS] Signature: $signature');
 
     // 10. 构建 Credential
     final credentialStr =
         '${credential.secretId}/$dateStr/$region/oss/aliyun_v4_request';
-    log('[AliyunOSS] Credential: $credentialStr');
+    //log('[AliyunOSS] Credential: $credentialStr');
 
     // 11. 构建 Authorization
     final authorization =
         'OSS4-HMAC-SHA256 Credential=$credentialStr,AdditionalHeaders=$signedHeadersStr,Signature=$signature';
-    log('[AliyunOSS] Authorization: $authorization');
+    //log('[AliyunOSS] Authorization: $authorization');
     return authorization;
   }
 
