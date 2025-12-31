@@ -8,6 +8,9 @@ import 'services/transfer_queue_service.dart';
 import 'utils/logger.dart';
 
 void main() async {
+  // 初始化 Flutter 绑定（必须在调用任何平台 API 之前）
+  WidgetsFlutterBinding.ensureInitialized();
+
   // 初始化日志系统
   await logger.init();
 
