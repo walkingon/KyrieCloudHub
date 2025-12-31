@@ -68,12 +68,15 @@ class _MainScreenState extends State<MainScreen> {
     final credential = await storage.getCredential(_currentPlatform!);
 
     if (credential == null) {
-      logError('No credential found for platform: ${_currentPlatform!.displayName}');
+      logError(
+        'No credential found for platform: ${_currentPlatform!.displayName}',
+      );
       return;
     }
 
     logUi('Credential found for platform: ${_currentPlatform!.displayName}');
 
+    // ignore: use_build_context_synchronously
     final factory = Provider.of<CloudPlatformFactory>(context, listen: false);
     final api = factory.createApi(_currentPlatform!, credential: credential);
 
@@ -88,7 +91,9 @@ class _MainScreenState extends State<MainScreen> {
         logError('Failed to load buckets: ${result.errorMessage}');
       }
     } else {
-      logError('Failed to create API for platform: ${_currentPlatform!.displayName}');
+      logError(
+        'Failed to create API for platform: ${_currentPlatform!.displayName}',
+      );
     }
   }
 

@@ -225,11 +225,6 @@ class AliyunOssApi implements ICloudPlatformApi {
     return digest.toString();
   }
 
-  /// 字节列表转十六进制字符串
-  String _bytesToHex(List<int> bytes) {
-    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join('');
-  }
-
   /// HMAC-SHA256 计算，返回字节（用于签名密钥链计算）
   List<int> _hmacSha256Bytes(String key, String data) {
     final keyBytes = utf8.encode(key);
