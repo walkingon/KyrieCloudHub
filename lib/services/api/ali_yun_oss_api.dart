@@ -215,9 +215,14 @@ class AliyunOssApi implements ICloudPlatformApi {
 
   /// 对路径进行 URI 编码（不编码正斜杠）
   /// 阿里云要求：资源路径中的正斜杠 / 不需要编码
+  /// 注意：Uri.encodeComponent 不会编码圆括号，需要额外处理
   String _encodePath(String path) {
     // 使用 Uri.encodeComponent 编码，然后还原 /
-    return Uri.encodeComponent(path).replaceAll('%2F', '/');
+    // 注意：Uri.encodeComponent 不会编码圆括号 ()，需要手动编码
+    return Uri.encodeComponent(path)
+        .replaceAll('%2F', '/')
+        .replaceAll('(', '%28')
+        .replaceAll(')', '%29');
   }
 
   /// HMAC-SHA256 计算，使用字节作为key，返回十六进制字符串（小写）
@@ -579,7 +584,7 @@ class AliyunOssApi implements ICloudPlatformApi {
   }) async {
     try {
       final host = _getEndpoint(bucketName);
-      final url = 'https://$host/$objectKey';
+      final url = 'https://$host/${_encodePath(objectKey)}';
 
       log('[AliyunOSS] 开始上传对象: $objectKey');
 
@@ -646,7 +651,7 @@ class AliyunOssApi implements ICloudPlatformApi {
   }) async {
     try {
       final host = _getEndpoint(bucketName);
-      final url = 'https://$host/$objectKey';
+      final url = 'https://$host/${_encodePath(objectKey)}';
 
       log('[AliyunOSS] 开始下载对象: $objectKey');
 
@@ -690,7 +695,7 @@ class AliyunOssApi implements ICloudPlatformApi {
   }) async {
     try {
       final host = _getEndpoint(bucketName);
-      final url = 'https://$host/$objectKey';
+      final url = 'https://$host/${_encodePath(objectKey)}';
 
       log('[AliyunOSS] 开始删除对象: $objectKey');
 
