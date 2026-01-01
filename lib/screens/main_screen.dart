@@ -222,9 +222,7 @@ class _MainScreenState extends State<MainScreen> {
                   backgroundColor: Colors.blue,
                   foregroundColor: Colors.white,
                   padding: EdgeInsets.symmetric(horizontal: 48, vertical: 20),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                  shape: StadiumBorder(),
                   elevation: 4,
                 ),
                 child: Text('去登录', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
