@@ -10,6 +10,7 @@ import '../../models/platform_credential.dart';
 import '../../utils/logger.dart';
 import 'cloud_platform_api.dart';
 import '../multipart_upload/file_chunk_reader.dart';
+import 'aliyun/aliyun_signature_generator.dart';
 
 /// 阿里云OSS API实现
 ///
@@ -35,11 +36,17 @@ class AliyunOssApi implements ICloudPlatformApi {
     );
   }
 
-  /// 打印签名调试日志（仅在_debugSignature为true时打印）
-  void _debugLog(String message) {
-    if (_debugSignature) {
-      log(message);
-    }
+  /// 签名生成器实例（延迟初始化）
+  AliyunSignatureGenerator? _signatureGenerator;
+
+  /// 获取签名生成器
+  AliyunSignatureGenerator _getSignatureGenerator() {
+    _signatureGenerator ??= AliyunSignatureGenerator(
+      credential: credential,
+      region: credential.region,
+      debugMode: _debugSignature,
+    );
+    return _signatureGenerator!;
   }
 
   /// 生成阿里云OSS V4签名
@@ -50,148 +57,13 @@ class AliyunOssApi implements ICloudPlatformApi {
     required Map<String, String> headers,
     Map<String, String>? queryParams,
   }) {
-    // 1. 生成 ISO8601 格式的日期时间
-    final now = DateTime.now().toUtc();
-    final dateTimeStr = _formatIso8601DateTime(now);
-    final dateStr = dateTimeStr.substring(0, 8); // YYYYMMDD
-
-    // 2. 确定地域
-    final region = _getRegion();
-    _debugLog('[AliyunOSS] 签名参数: dateStr=$dateStr, region=$region');
-
-    // 3. 构建参与签名的头部列表（按小写字母排序）
-    final signingHeaders = <String>[];
-    for (final entry in headers.entries) {
-      final lowerKey = entry.key.toLowerCase();
-      // 参与签名的头部: host, content-type, content-md5, 以及 x-oss- 开头的头部
-      if (lowerKey == 'host' ||
-          lowerKey == 'content-type' ||
-          lowerKey == 'content-md5' ||
-          lowerKey.startsWith('x-oss-')) {
-        signingHeaders.add(lowerKey);
-      }
-    }
-    signingHeaders.sort();
-    final signedHeadersStr = signingHeaders.join(';');
-    _debugLog('[AliyunOSS] SignedHeaders: $signedHeadersStr');
-
-    // 4. 构建 CanonicalizedHeader
-    // 注意：根据阿里云文档，每个header格式为 "key:value\n"，头部之间无额外换行
-    final canonicalHeaders = <String>[];
-    for (final key in signingHeaders) {
-      // 从原始 headers 中查找（key 可能是大小写混合，需要匹配小写形式）
-      final value = headers.entries
-          .firstWhere((e) => e.key.toLowerCase() == key, orElse: () => MapEntry('', ''))
-          .value;
-      canonicalHeaders.add('$key:${value.trim()}');
-    }
-    // CanonicalHeaders: 每个header一行，header之间无空行
-    final canonicalHeadersStr = canonicalHeaders.join('\n');
-    _debugLog('[AliyunOSS] CanonicalHeaders: """$canonicalHeadersStr"""');
-
-    // 5. 构建 Canonical URI 和 Canonical Query String
-    // 注意：Canonical URI 需要 URI 编码，但正斜杠 / 不需要编码
-    String canonicalUri = '/';
-    if (bucketName != null) {
-      if (objectKey != null && objectKey.isNotEmpty) {
-        // 有具体对象路径时: /bucketName/objectKey
-        // 对 objectKey 进行 URI 编码，但不编码 /
-        canonicalUri = '/$bucketName/${_encodePath(objectKey)}';
-      } else {
-        // 仅访问存储桶时（如列举对象）: /bucketName/ (需要末尾斜杠)
-        canonicalUri = '/$bucketName/';
-      }
-    }
-    _debugLog('[AliyunOSS] CanonicalUri: $canonicalUri');
-
-    // 构建 Canonical Query String（与阿里云官方SDK一致：空值不添加等号）
-    // 注意：marker 值在 listObjects 中已经编码过了，如果已包含 % 则不再重复编码
-    String canonicalQueryString = '';
-    if (queryParams != null && queryParams.isNotEmpty) {
-      final sortedParams = queryParams.entries.toList()
-        ..sort((a, b) => a.key.compareTo(b.key));
-      canonicalQueryString = sortedParams
-          .map((e) {
-            final encodedKey = Uri.encodeComponent(e.key);
-            if (e.value.isEmpty) {
-              return encodedKey; // 空值不添加等号
-            }
-            // 如果 marker 值已包含 % 编码字符（如 %28），说明已经编码过，直接使用
-            // 否则使用 _encodeMarkerValue 编码
-            if (e.key == 'marker') {
-              if (e.value.contains('%')) {
-                return '$encodedKey=${e.value}'; // 已编码，直接使用
-              }
-              return '$encodedKey=${_encodeMarkerValue(e.value)}';
-            }
-            return '$encodedKey=${Uri.encodeComponent(e.value)}';
-          })
-          .join('&');
-    }
-    _debugLog('[AliyunOSS] CanonicalQueryString: """$canonicalQueryString"""');
-
-    // 6. 构建 CanonicalRequest
-    // 格式: HTTP Verb + "\n" + Canonical URI + "\n" + Canonical Query String + "\n" +
-    //       Canonical Headers + "\n" + Additional Headers + "\n" + Hashed PayLoad
-    // 注意：Canonical Headers 末尾需要有换行符来分隔 Additional Headers
-    final canonicalRequest = [
-      method.toUpperCase(),
-      canonicalUri,
-      canonicalQueryString,
-      '$canonicalHeadersStr\n', // Headers 末尾换行
-      signedHeadersStr, // AdditionalHeaders（末尾无换行，由下一个join添加）
-      'UNSIGNED-PAYLOAD',
-    ].join('\n');
-
-    _debugLog('[AliyunOSS] CanonicalRequest: """$canonicalRequest"""');
-
-    // 7. 构建 StringToSign
-    final canonicalRequestHash = _sha256Hex(canonicalRequest);
-    _debugLog('[AliyunOSS] CanonicalRequestHash: $canonicalRequestHash');
-    //log('[AliyunOSS] CanonicalRequestHash: $canonicalRequestHash');
-
-    final stringToSign = [
-      'OSS4-HMAC-SHA256',
-      dateTimeStr,
-      '$dateStr/$region/oss/aliyun_v4_request',
-      canonicalRequestHash,
-    ].join('\n');
-
-    _debugLog('[AliyunOSS] StringToSign: """$stringToSign"""');
-
-    // 8. 计算签名密钥
-    // 使用字节进行HMAC计算，确保正确传递二进制数据
-    final dateKeyInput = 'aliyun_v4${credential.secretKey}';
-    _debugLog('[AliyunOSS] DateKeyInput: $dateKeyInput (长度: ${dateKeyInput.length})');
-    final kDateBytes = _hmacSha256Bytes(dateKeyInput, dateStr);
-    _debugLog('[AliyunOSS] KDate (hex): ${_bytesToHex(kDateBytes)}');
-
-    final kRegionBytes = _hmacSha256WithBytesKey(kDateBytes, region);
-    _debugLog('[AliyunOSS] KRegion (hex): ${_bytesToHex(kRegionBytes)}');
-
-    final kServiceBytes = _hmacSha256WithBytesKey(kRegionBytes, 'oss');
-    _debugLog('[AliyunOSS] KService (hex): ${_bytesToHex(kServiceBytes)}');
-
-    final kSigningBytes = _hmacSha256WithBytesKey(
-      kServiceBytes,
-      'aliyun_v4_request',
+    return _getSignatureGenerator().generate(
+      method: method,
+      bucketName: bucketName,
+      objectKey: objectKey,
+      headers: headers,
+      queryParams: queryParams,
     );
-    _debugLog('[AliyunOSS] KSigning (hex): ${_bytesToHex(kSigningBytes)}');
-
-    // 9. 计算签名（使用字节key）
-    final signature = _hmacSha256WithBytesKeyHex(kSigningBytes, stringToSign);
-    _debugLog('[AliyunOSS] Signature: $signature');
-
-    // 10. 构建 Credential
-    final credentialStr =
-        '${credential.secretId}/$dateStr/$region/oss/aliyun_v4_request';
-    _debugLog('[AliyunOSS] Credential: $credentialStr');
-
-    // 11. 构建 Authorization
-    final authorization =
-        'OSS4-HMAC-SHA256 Credential=$credentialStr,AdditionalHeaders=$signedHeadersStr,Signature=$signature';
-    _debugLog('[AliyunOSS] Authorization: $authorization');
-    return authorization;
   }
 
   /// 格式化 ISO8601 日期时间
@@ -260,46 +132,6 @@ class AliyunOssApi implements ICloudPlatformApi {
     // 额外编码圆括号 ( -> %28, ) -> %29
     encoded = encoded.replaceAll('(', '%28').replaceAll(')', '%29');
     return encoded;
-  }
-
-  /// HMAC-SHA256 计算，使用字节作为key，返回十六进制字符串（小写）
-  String _hmacSha256WithBytesKeyHex(List<int> keyBytes, String data) {
-    final dataBytes = utf8.encode(data);
-    final hmac = Hmac(sha256, keyBytes);
-    final digest = hmac.convert(dataBytes);
-    // Hmac.toString() 返回小写十六进制
-    return digest.toString();
-  }
-
-  /// HMAC-SHA256 计算，返回字节（用于签名密钥链计算）
-  List<int> _hmacSha256Bytes(String key, String data) {
-    final keyBytes = utf8.encode(key);
-    final dataBytes = utf8.encode(data);
-    final hmac = Hmac(sha256, keyBytes);
-    final digest = hmac.convert(dataBytes);
-    return digest.bytes;
-  }
-
-  /// HMAC-SHA256 计算，使用字节作为key，返回字节
-  List<int> _hmacSha256WithBytesKey(List<int> keyBytes, String data) {
-    final dataBytes = utf8.encode(data);
-    final hmac = Hmac(sha256, keyBytes);
-    final digest = hmac.convert(dataBytes);
-    return digest.bytes;
-  }
-
-  /// SHA256 计算，返回十六进制字符串（小写）
-  /// 注意：阿里云 OSS V4 签名使用小写十六进制
-  String _sha256Hex(String data) {
-    final dataBytes = utf8.encode(data);
-    final hash = sha256.convert(dataBytes);
-    // sha256.convert().toString() 返回小写十六进制，与阿里云期望一致
-    return hash.toString();
-  }
-
-  /// 字节数组转十六进制字符串（小写）
-  String _bytesToHex(List<int> bytes) {
-    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join('');
   }
 
   /// 生成分块ETag（用于备用方案）

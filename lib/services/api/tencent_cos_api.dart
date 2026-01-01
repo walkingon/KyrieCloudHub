@@ -9,6 +9,7 @@ import '../../models/platform_credential.dart';
 import '../../utils/logger.dart';
 import 'cloud_platform_api.dart';
 import '../multipart_upload/multipart_upload_manager.dart';
+import 'tencent/tencent_signature_generator.dart';
 
 class TencentCosApi implements ICloudPlatformApi {
   /// 控制签名生成过程日志的打印开关
@@ -27,140 +28,31 @@ class TencentCosApi implements ICloudPlatformApi {
     );
   }
 
-  /// 打印签名调试日志（仅在_debugSignature为true时打印）
-  void _debugLog(String message) {
-    if (_debugSignature) {
-      log(message);
-    }
+  /// 签名生成器实例（延迟初始化）
+  TencentSignatureGenerator? _signatureGenerator;
+
+  /// 获取签名生成器
+  TencentSignatureGenerator _getSignatureGenerator() {
+    _signatureGenerator ??= TencentSignatureGenerator(
+      credential: credential,
+      debugMode: _debugSignature,
+    );
+    return _signatureGenerator!;
   }
 
   /// 生成腾讯云COS签名
-  ///
-  /// [method] HTTP方法
-  /// [path] 请求路径（不含查询参数）
-  /// [headers] 请求头
-  /// [queryParams] 查询参数（可选）
-  /// [secretId] 密钥ID
-  /// [secretKey] 密钥
   String _getSignature(
     String method,
     String path,
     Map<String, String> headers, {
     Map<String, String>? queryParams,
-    required String secretId,
-    required String secretKey,
   }) {
-    // 生成签名时间（当前时间戳，有效期1小时）
-    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    final end = now + 3600;
-    final keyTime = '$now;$end'; // 完整的时间范围格式：start;end
-
-    _debugLog('[TencentCOS] 签名 KeyTime: $keyTime');
-
-    // 1. 计算 SignKey = HMAC-SHA1(SecretKey, KeyTime)
-    // SignKey 是十六进制小写字符串
-    final signKey = _hmacSha1(secretKey, keyTime);
-    _debugLog('[TencentCOS] 签名 SignKey: $signKey');
-
-    // 2. 计算 CanonicalRequest 的 SHA1 哈希
-    final canonicalRequest = _buildCanonicalRequest(
-      method,
-      path,
-      headers,
+    return _getSignatureGenerator().generate(
+      method: method,
+      path: path,
+      headers: headers,
       queryParams: queryParams,
     );
-    final sha1CanonicalRequest = sha1.convert(utf8.encode(canonicalRequest));
-    _debugLog('[TencentCOS] 签名 CanonicalRequest SHA1: ${sha1CanonicalRequest.toString()}');
-
-    // 3. 拼接 StringToSign = "sha1\n{q-sign-time}\n{SHA1(CanonicalRequest)}\n"
-    final stringToSign = 'sha1\n$keyTime\n${sha1CanonicalRequest.toString()}\n';
-    _debugLog('[TencentCOS] 签名 StringToSign: $stringToSign');
-
-    // 4. 计算 Signature = HMAC-SHA1(SignKey, StringToSign)
-    // SignKey 作为十六进制字符串，需要转换为字节后作为 HMAC 密钥
-    final signatureHex = _hmacSha1WithHexKey(signKey, stringToSign);
-    _debugLog('[TencentCOS] 签名最终 Signature: $signatureHex');
-
-    return signatureHex;
-  }
-
-  /// HMAC-SHA1 计算，返回十六进制字符串
-  String _hmacSha1(String key, String data) {
-    final keyBytes = utf8.encode(key);
-    final dataBytes = utf8.encode(data);
-    final hmac = Hmac(sha1, keyBytes);
-    final digest = hmac.convert(dataBytes);
-    return digest.toString();
-  }
-
-  /// HMAC-SHA1 计算，SignKey 为十六进制字符串（作为字符串使用，非字节）
-  /// 腾讯云文档说明：SignKey 为密钥（字符串形式，非原始二进制）
-  String _hmacSha1WithHexKey(String hexKey, String data) {
-    // SignKey 作为字符串传递给 HMAC（不是转换为字节）
-    final keyBytes = utf8.encode(hexKey);
-    final dataBytes = utf8.encode(data);
-    final hmac = Hmac(sha1, keyBytes);
-    final digest = hmac.convert(dataBytes);
-    return digest.toString();
-  }
-
-  /// 构建规范请求 (CanonicalRequest)
-  ///
-  /// 格式: HttpMethod\nUriPathname\nHttpParameters\nHttpHeaders\n
-  String _buildCanonicalRequest(
-    String method,
-    String path,
-    Map<String, String> headers, {
-    Map<String, String>? queryParams,
-  }) {
-    // 1. HttpMethod 转小写
-    final httpMethod = method.toLowerCase();
-
-    // 2. UriPathname (不含查询参数)
-    final uriPathname = path;
-
-    // 3. HttpParameters (URL参数)
-    String httpParameters = '';
-    if (queryParams != null && queryParams.isNotEmpty) {
-      // 对参数进行排序和编码
-      final sortedParams = queryParams.entries.toList()
-        ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
-
-      // 生成 HttpParameters: key1=value1&key2=value2
-      // 注意：等号不编码，这是腾讯云的要求
-      // 使用 encodeComponent，但圆括号需要额外编码
-      httpParameters = sortedParams
-          .map((e) {
-            final key = Uri.encodeComponent(e.key.toLowerCase());
-            final value = _encodeMarkerValue(e.value);
-            return '$key=$value';
-          })
-          .join('&');
-    }
-
-    log('[TencentCOS] CanonicalRequest HttpParameters: $httpParameters');
-
-    // 4. HttpHeaders (参与签名的头部，按key字典序排序)
-    // key 使用小写并 URL 编码，value 使用 URL 编码
-    // headers 必须使用 encodeComponent，逗号等需要编码
-    final sortedHeaders = headers.entries.toList()
-      ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
-
-    final httpHeaders = sortedHeaders
-        .map((e) {
-          final key = Uri.encodeComponent(e.key.toLowerCase());
-          final value = Uri.encodeComponent(e.value);
-          return '$key=$value';
-        })
-        .join('&');
-
-    log('[TencentCOS] CanonicalRequest HttpHeaders: $httpHeaders');
-
-    // 拼接: HttpMethod\nUriPathname\nHttpParameters\nHttpHeaders\n
-    final canonicalRequest = '$httpMethod\n$uriPathname\n$httpParameters\n$httpHeaders\n';
-    log('[TencentCOS] CanonicalRequest完整: $canonicalRequest');
-
-    return canonicalRequest;
   }
 
   /// URL 编码（用于 queryParams 编码，圆括号等特殊字符也需要编码）
@@ -170,9 +62,7 @@ class TencentCosApi implements ICloudPlatformApi {
 
   /// marker 值的特殊编码：encodeComponent 基础上额外编码圆括号
   String _encodeMarkerValue(String value) {
-    // 先用 encodeComponent 编码基础字符
     String encoded = Uri.encodeComponent(value);
-    // 额外编码圆括号 ( -> %28, ) -> %29
     encoded = encoded.replaceAll('(', '%28').replaceAll(')', '%29');
     return encoded;
   }
@@ -200,8 +90,6 @@ class TencentCosApi implements ICloudPlatformApi {
         'GET',
         '/',
         headersForSign,
-        secretId: credential.secretId,
-        secretKey: credential.secretKey,
       );
 
       log('[TencentCOS] 签名生成完成, Signature: $signature');
@@ -331,8 +219,6 @@ class TencentCosApi implements ICloudPlatformApi {
         '/',
         headersForSign,
         queryParams: queryParams,
-        secretId: credential.secretId,
-        secretKey: credential.secretKey,
       );
 
       // 生成 headerList 和 urlParamList（按字典序排序）
@@ -524,8 +410,6 @@ class TencentCosApi implements ICloudPlatformApi {
         'PUT',
         '/$objectKey',
         headersForSign,
-        secretId: credential.secretId,
-        secretKey: credential.secretKey,
       );
 
       final headers = {
@@ -581,8 +465,6 @@ class TencentCosApi implements ICloudPlatformApi {
         'GET',
         '/$objectKey',
         headersForSign,
-        secretId: credential.secretId,
-        secretKey: credential.secretKey,
       );
 
       final headers = {
@@ -635,8 +517,6 @@ class TencentCosApi implements ICloudPlatformApi {
         'DELETE',
         '/$objectKey',
         headersForSign,
-        secretId: credential.secretId,
-        secretKey: credential.secretKey,
       );
 
       final headers = {
@@ -707,8 +587,6 @@ class TencentCosApi implements ICloudPlatformApi {
         '/',
         headersForSign,
         queryParams: queryParams,
-        secretId: credential.secretId,
-        secretKey: credential.secretKey,
       );
 
       // 生成 urlParamList（按字典序排序，只包含参数名，不包含值）
@@ -787,8 +665,6 @@ class TencentCosApi implements ICloudPlatformApi {
         'PUT',
         '/$objectKey',
         headersForSign,
-        secretId: credential.secretId,
-        secretKey: credential.secretKey,
       );
 
       final headers = {
@@ -1118,8 +994,6 @@ class TencentCosApi implements ICloudPlatformApi {
         'PUT',
         '/$targetKey',
         headersForSign,
-        secretId: credential.secretId,
-        secretKey: credential.secretKey,
       );
 
       // 源对象需要 URL 编码
@@ -1198,8 +1072,6 @@ class TencentCosApi implements ICloudPlatformApi {
           path,
           headersForSign,
           queryParams: queryParams,
-          secretId: credential.secretId,
-          secretKey: credential.secretKey,
         );
       };
 
@@ -1219,8 +1091,6 @@ class TencentCosApi implements ICloudPlatformApi {
               path,
               headersForSign,
               queryParams: queryParams,
-              secretId: credential.secretId,
-              secretKey: credential.secretKey,
             );
           };
 

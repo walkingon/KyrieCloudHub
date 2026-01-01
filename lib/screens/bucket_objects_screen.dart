@@ -10,6 +10,7 @@ import '../models/platform_type.dart';
 import '../services/api/cloud_platform_api.dart';
 import '../services/cloud_platform_factory.dart';
 import '../services/storage_service.dart';
+import '../utils/file_type_helper.dart';
 import '../utils/logger.dart';
 
 // ignore_for_file: library_private_types_in_public_api
@@ -827,184 +828,12 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
   /// 根据文件类型获取图标
   IconData _getObjectIcon(ObjectFile obj) {
-    if (obj.type == ObjectType.folder) {
-      return Icons.folder;
-    }
-
-    final ext = obj.extension.toLowerCase();
-    switch (ext) {
-      // 图片
-      case 'jpg':
-      case 'jpeg':
-      case 'png':
-      case 'gif':
-      case 'bmp':
-      case 'webp':
-      case 'svg':
-        return Icons.image;
-
-      // 视频
-      case 'mp4':
-      case 'avi':
-      case 'mkv':
-      case 'mov':
-      case 'wmv':
-      case 'flv':
-      case 'webm':
-        return Icons.video_file;
-
-      // 音频
-      case 'mp3':
-      case 'wav':
-      case 'flac':
-      case 'aac':
-      case 'ogg':
-      case 'm4a':
-        return Icons.audio_file;
-
-      // 文档
-      case 'pdf':
-        return Icons.picture_as_pdf;
-
-      case 'doc':
-      case 'docx':
-      case 'txt':
-      case 'rtf':
-        return Icons.description;
-
-      case 'xls':
-      case 'xlsx':
-      case 'csv':
-        return Icons.table_chart;
-
-      case 'ppt':
-      case 'pptx':
-        return Icons.slideshow;
-
-      // 压缩文件
-      case 'zip':
-      case 'rar':
-      case '7z':
-      case 'tar':
-      case 'gz':
-        return Icons.archive;
-
-      // 代码
-      case 'dart':
-      case 'js':
-      case 'ts':
-      case 'py':
-      case 'java':
-      case 'c':
-      case 'cpp':
-      case 'h':
-      case 'html':
-      case 'css':
-      case 'json':
-      case 'yaml':
-      case 'yml':
-        return Icons.code;
-
-      // 可执行文件
-      case 'exe':
-      case 'app':
-      case 'dmg':
-        return Icons.play_circle_filled;
-
-      default:
-        return Icons.insert_drive_file;
-    }
+    return FileTypeHelper.getIcon(obj);
   }
 
   /// 根据文件类型获取颜色
   Color _getObjectColor(ObjectFile obj) {
-    if (obj.type == ObjectType.folder) {
-      return Colors.amber.shade700;
-    }
-
-    final ext = obj.extension.toLowerCase();
-    switch (ext) {
-      // 图片 - 紫色
-      case 'jpg':
-      case 'jpeg':
-      case 'png':
-      case 'gif':
-      case 'bmp':
-      case 'webp':
-      case 'svg':
-        return Colors.purple;
-
-      // 视频 - 粉色
-      case 'mp4':
-      case 'avi':
-      case 'mkv':
-      case 'mov':
-      case 'wmv':
-      case 'flv':
-      case 'webm':
-        return Colors.pink;
-
-      // 音频 - 青色
-      case 'mp3':
-      case 'wav':
-      case 'flac':
-      case 'aac':
-      case 'ogg':
-      case 'm4a':
-        return Colors.cyan;
-
-      // 文档 - 蓝色
-      case 'pdf':
-      case 'doc':
-      case 'docx':
-      case 'txt':
-      case 'rtf':
-        return Colors.blue;
-
-      // 表格 - 绿色
-      case 'xls':
-      case 'xlsx':
-      case 'csv':
-        return Colors.green;
-
-      // PPT - 橙色
-      case 'ppt':
-      case 'pptx':
-        return Colors.orange;
-
-      // 压缩文件 - 棕色
-      case 'zip':
-      case 'rar':
-      case '7z':
-      case 'tar':
-      case 'gz':
-        return Colors.brown;
-
-      // 代码 - 深蓝色
-      case 'dart':
-      case 'js':
-      case 'ts':
-      case 'py':
-      case 'java':
-      case 'c':
-      case 'cpp':
-      case 'h':
-      case 'html':
-      case 'css':
-      case 'json':
-      case 'yaml':
-      case 'yml':
-        return Colors.indigo;
-
-      // 可执行文件 - 红色
-      case 'exe':
-      case 'app':
-      case 'dmg':
-        return Colors.red;
-
-      default:
-        return Colors.grey;
-    }
+    return FileTypeHelper.getColor(obj);
   }
 
   List<Widget> _buildSelectionActions() {
