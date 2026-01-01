@@ -651,10 +651,10 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                   _sortMode == SortMode.nameAsc
                       ? Icons.arrow_upward
                       : _sortMode == SortMode.nameDesc
-                          ? Icons.arrow_downward
-                          : Icons.sort_by_alpha,
+                      ? Icons.arrow_downward
+                      : Icons.sort_by_alpha,
                 ),
-                label: Text('按名称'),
+                label: Text('名称'),
                 onPressed: _sortByName,
               ),
               TextButton.icon(
@@ -662,10 +662,10 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                   _sortMode == SortMode.timeAsc
                       ? Icons.arrow_upward
                       : _sortMode == SortMode.timeDesc
-                          ? Icons.arrow_downward
-                          : Icons.schedule,
+                      ? Icons.arrow_downward
+                      : Icons.schedule,
                 ),
-                label: Text('按时间'),
+                label: Text('时间'),
                 onPressed: _sortByTime,
               ),
             ],
@@ -735,10 +735,14 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     setState(() {
       switch (_sortMode) {
         case SortMode.nameAsc:
-          _objects.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+          _objects.sort(
+            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+          );
           break;
         case SortMode.nameDesc:
-          _objects.sort((a, b) => b.name.toLowerCase().compareTo(a.name.toLowerCase()));
+          _objects.sort(
+            (a, b) => b.name.toLowerCase().compareTo(a.name.toLowerCase()),
+          );
           break;
         case SortMode.timeAsc:
           _objects.sort((a, b) {
