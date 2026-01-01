@@ -81,11 +81,10 @@ class _PlatformSelectionScreenState extends State<PlatformSelectionScreen> {
                   builder: (context) => LoginDialog(platform: platform),
                 );
                 if (result == true) {
-                  logUi('User logged in successfully: ${platform.displayName}');
-                  _loadLoginStatus();
-                  if (mounted) {
-                    Navigator.pop(context);
-                  }
+                  logUi('User logged in successfully: ${platform.displayName} - closing platform selection');
+                  // 直接关闭平台选择界面返回主界面
+                  // 主界面会自动刷新存储桶列表
+                  Navigator.of(context).pop(true);
                 } else {
                   logUi('User cancelled login for: ${platform.displayName}');
                 }
@@ -94,9 +93,7 @@ class _PlatformSelectionScreenState extends State<PlatformSelectionScreen> {
                 // 保存最后选择的平台
                 final storage = Provider.of<StorageService>(context, listen: false);
                 await storage.saveLastPlatform(platform);
-                if (mounted) {
-                  Navigator.pop(context);
-                }
+                Navigator.of(context).pop(true);
               }
             },
           );

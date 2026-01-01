@@ -57,41 +57,20 @@ class _MainScreenState extends State<MainScreen> {
 
   /// 刷新当前平台数据（从平台选择界面返回时调用）
   Future<void> _refreshCurrentPlatform() async {
-    logUi('_refreshCurrentPlatform called');
     final storage = Provider.of<StorageService>(context, listen: false);
-    logUi('_refreshCurrentPlatform: getting last platform...');
     final lastPlatform = await storage.getLastPlatform();
-    logUi('_refreshCurrentPlatform: lastPlatform = $lastPlatform');
-    if (lastPlatform == null) {
-      logUi('_refreshCurrentPlatform: no last platform, returning');
-      return;
-    }
+    if (lastPlatform == null) return;
 
-    // 使用 Future.delayed 避免在异步回调中直接 setState
-    // 这样可以确保 UI 更新在下一个事件循环中执行
-    // 同时检查 mounted 状态
-    logUi('_refreshCurrentPlatform: checking mounted...');
-    if (!mounted) {
-      logUi('_refreshCurrentPlatform: not mounted, returning');
-      return;
-    }
-    await Future.delayed(Duration.zero);
+    // 等待当前帧完成
+    await Future.delayed(Duration(milliseconds: 50));
 
-    if (!mounted) {
-      logUi('_refreshCurrentPlatform: not mounted after delay, returning');
-      return;
-    }
+    if (!mounted) return;
+
     setState(() {
       _currentPlatform = lastPlatform;
-      _buckets = []; // 清空旧数据
+      _buckets = [];
     });
-    logUi('Refreshed platform: ${lastPlatform.displayName}');
 
-    // 再次检查 mounted 状态后再调用 _loadBuckets
-    if (!mounted) {
-      logUi('_refreshCurrentPlatform: not mounted before loadBuckets, returning');
-      return;
-    }
     await _loadBuckets();
   }
 
@@ -234,7 +213,10 @@ class _MainScreenState extends State<MainScreen> {
                     MaterialPageRoute(
                       builder: (context) => PlatformSelectionScreen(),
                     ),
-                  );
+                  ).then((_) {
+                    // 从平台选择界面返回时刷新数据
+                    _refreshCurrentPlatform();
+                  });
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.blue,
