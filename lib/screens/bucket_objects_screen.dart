@@ -631,33 +631,60 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         border: Border(top: BorderSide(color: Colors.grey.shade300)),
       ),
       child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // 上一页
-          IconButton(
-            icon: Icon(Icons.chevron_left),
-            onPressed: _currentPage > 1 ? _loadPreviousPage : null,
-            tooltip: '上一页',
+          // 左侧排序按钮
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextButton.icon(
+                icon: Icon(Icons.sort_by_alpha, size: 18),
+                label: Text('按名称'),
+                onPressed: null, // 待实现
+              ),
+              TextButton.icon(
+                icon: Icon(Icons.schedule, size: 18),
+                label: Text('按时间'),
+                onPressed: null, // 待实现
+              ),
+            ],
           ),
-          // 页码信息
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text('第 $_currentPage 页', style: TextStyle(fontSize: 14)),
+          Spacer(),
+          // 中间分页导航
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // 上一页
+              IconButton(
+                icon: Icon(Icons.chevron_left),
+                onPressed: _currentPage > 1 ? _loadPreviousPage : null,
+                tooltip: '上一页',
+              ),
+              // 页码信息
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  '第 $_currentPage 页',
+                  style: TextStyle(fontSize: 14),
+                ),
+              ),
+              // 下一页
+              IconButton(
+                icon: Icon(Icons.chevron_right),
+                onPressed: _hasMore ? _loadNextPage : null,
+                tooltip: '下一页',
+                disabledColor: Colors.grey.shade400,
+              ),
+              // 加载更多指示器
+              if (_isLoadingMore)
+                SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
           ),
-          // 下一页
-          IconButton(
-            icon: Icon(Icons.chevron_right),
-            onPressed: _hasMore ? _loadNextPage : null,
-            tooltip: '下一页',
-            disabledColor: Colors.grey.shade400,
-          ),
-          // 加载更多指示器
-          if (_isLoadingMore)
-            SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
+          // 右侧占位
+          SizedBox(width: 100),
         ],
       ),
     );
