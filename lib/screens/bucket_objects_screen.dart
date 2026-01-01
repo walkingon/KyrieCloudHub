@@ -35,8 +35,12 @@ class BucketObjectsScreen extends StatefulWidget {
   _BucketObjectsScreenState createState() => _BucketObjectsScreenState();
 }
 
+/// 排序模式
+enum SortMode { none, nameAsc, nameDesc, timeAsc, timeDesc }
+
 class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   List<ObjectFile> _objects = [];
+  List<ObjectFile> _originalObjects = [];
   LoadingState _loadingState = LoadingState.idle;
   String _errorMessage = '';
   late final StorageService _storage;
@@ -58,6 +62,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   bool _hasMore = false;
   String? _nextMarker;
   bool _isLoadingMore = false;
+
+  // 排序模式
+  SortMode _sortMode = SortMode.none;
 
   List<ObjectFile> get _selectedFileList =>
       _objects.where((obj) => _selectedObjects.contains(obj.key)).toList();
@@ -133,6 +140,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         setState(() {
           // 每次加载都替换数据（传统分页模式）
           _objects = result.data!.objects;
+          _originalObjects = List.from(_objects); // 保存原始数据用于排序
           _hasMore = result.data!.isTruncated;
           _nextMarker = result.data!.nextMarker;
           _loadingState = _objects.isEmpty
@@ -140,6 +148,8 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
               : LoadingState.success;
           _errorMessage = '';
           _isLoadingMore = false;
+          // 重新应用排序
+          _applySort();
         });
         logUi(
           'After setState: page=$_currentPage, objects=${_objects.length}, hasMore=$_hasMore',
@@ -637,14 +647,26 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               TextButton.icon(
-                icon: Icon(Icons.sort_by_alpha, size: 18),
+                icon: Icon(
+                  _sortMode == SortMode.nameAsc
+                      ? Icons.arrow_upward
+                      : _sortMode == SortMode.nameDesc
+                          ? Icons.arrow_downward
+                          : Icons.sort_by_alpha,
+                ),
                 label: Text('按名称'),
-                onPressed: null, // 待实现
+                onPressed: _sortByName,
               ),
               TextButton.icon(
-                icon: Icon(Icons.schedule, size: 18),
+                icon: Icon(
+                  _sortMode == SortMode.timeAsc
+                      ? Icons.arrow_upward
+                      : _sortMode == SortMode.timeDesc
+                          ? Icons.arrow_downward
+                          : Icons.schedule,
+                ),
                 label: Text('按时间'),
-                onPressed: null, // 待实现
+                onPressed: _sortByTime,
               ),
             ],
           ),
@@ -706,6 +728,63 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       _viewMode = _viewMode == ViewMode.list ? ViewMode.grid : ViewMode.list;
     });
     logUi('View mode changed to: ${_viewMode.name}');
+  }
+
+  /// 应用排序
+  void _applySort() {
+    setState(() {
+      switch (_sortMode) {
+        case SortMode.nameAsc:
+          _objects.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+          break;
+        case SortMode.nameDesc:
+          _objects.sort((a, b) => b.name.toLowerCase().compareTo(a.name.toLowerCase()));
+          break;
+        case SortMode.timeAsc:
+          _objects.sort((a, b) {
+            final timeA = a.lastModified ?? DateTime(1970);
+            final timeB = b.lastModified ?? DateTime(1970);
+            return timeA.compareTo(timeB);
+          });
+          break;
+        case SortMode.timeDesc:
+          _objects.sort((a, b) {
+            final timeA = a.lastModified ?? DateTime(1970);
+            final timeB = b.lastModified ?? DateTime(1970);
+            return timeB.compareTo(timeA);
+          });
+          break;
+        case SortMode.none:
+          _objects = List.from(_originalObjects);
+          break;
+      }
+    });
+  }
+
+  /// 按名称排序
+  void _sortByName() {
+    setState(() {
+      if (_sortMode == SortMode.nameAsc) {
+        _sortMode = SortMode.nameDesc;
+      } else {
+        _sortMode = SortMode.nameAsc;
+      }
+      _applySort();
+    });
+    logUi('Sort by name: ${_sortMode.name}');
+  }
+
+  /// 按时间排序
+  void _sortByTime() {
+    setState(() {
+      if (_sortMode == SortMode.timeAsc) {
+        _sortMode = SortMode.timeDesc;
+      } else {
+        _sortMode = SortMode.timeAsc;
+      }
+      _applySort();
+    });
+    logUi('Sort by time: ${_sortMode.name}');
   }
 
   /// 构建列表视图
