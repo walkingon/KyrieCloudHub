@@ -44,58 +44,66 @@ class _PlatformSelectionScreenState extends State<PlatformSelectionScreen> {
       body: ListView(
         children: PlatformType.values.map((platform) {
           final isLoggedIn = _loginStatus[platform] ?? false;
-          return ListTile(
-            leading: Container(
-              width: 8,
-              height: 40,
-              decoration: BoxDecoration(
-                color: platform.color,
-                borderRadius: BorderRadius.circular(4),
-              ),
-            ),
-            title: Text(platform.displayName),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (isLoggedIn) Icon(Icons.check, color: Colors.green),
-                if (isLoggedIn)
-                  TextButton(
-                    onPressed: () async {
-                      logUi('User tapped logout for: ${platform.displayName}');
-                      final storage = Provider.of<StorageService>(
-                        context,
-                        listen: false,
-                      );
-                      await storage.clearCredential(platform);
-                      _loadLoginStatus();
-                    },
-                    child: Text('登出'),
+          return Column(
+            children: [
+              ListTile(
+                leading: Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: platform.color,
+                    shape: BoxShape.circle,
                   ),
-              ],
-            ),
-            onTap: () async {
-              if (!isLoggedIn) {
-                logUi('User selected platform: ${platform.displayName} - showing login dialog');
-                final result = await showDialog(
-                  context: context,
-                  builder: (context) => LoginDialog(platform: platform),
-                );
-                if (result == true) {
-                  logUi('User logged in successfully: ${platform.displayName} - closing platform selection');
-                  // 直接关闭平台选择界面返回主界面
-                  // 主界面会自动刷新存储桶列表
-                  Navigator.of(context).pop(true);
-                } else {
-                  logUi('User cancelled login for: ${platform.displayName}');
-                }
-              } else {
-                logUi('User selected already logged in platform: ${platform.displayName} - returning');
-                // 保存最后选择的平台
-                final storage = Provider.of<StorageService>(context, listen: false);
-                await storage.saveLastPlatform(platform);
-                Navigator.of(context).pop(true);
-              }
-            },
+                ),
+                title: Text(platform.displayName),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (isLoggedIn) Icon(Icons.check, color: Colors.green),
+                    if (isLoggedIn)
+                      TextButton(
+                        onPressed: () async {
+                          logUi('User tapped logout for: ${platform.displayName}');
+                          final storage = Provider.of<StorageService>(
+                            context,
+                            listen: false,
+                          );
+                          await storage.clearCredential(platform);
+                          _loadLoginStatus();
+                        },
+                        child: Text('登出'),
+                      ),
+                  ],
+                ),
+                onTap: () async {
+                  if (!isLoggedIn) {
+                    logUi('User selected platform: ${platform.displayName} - showing login dialog');
+                    final result = await showDialog(
+                      context: context,
+                      builder: (context) => LoginDialog(platform: platform),
+                    );
+                    if (result == true) {
+                      logUi('User logged in successfully: ${platform.displayName} - closing platform selection');
+                      // 直接关闭平台选择界面返回主界面
+                      // 主界面会自动刷新存储桶列表
+                      Navigator.of(context).pop(true);
+                    } else {
+                      logUi('User cancelled login for: ${platform.displayName}');
+                    }
+                  } else {
+                    logUi('User selected already logged in platform: ${platform.displayName} - returning');
+                    // 保存最后选择的平台
+                    final storage = Provider.of<StorageService>(context, listen: false);
+                    await storage.saveLastPlatform(platform);
+                    Navigator.of(context).pop(true);
+                  }
+                },
+              ),
+              Container(
+                height: 2,
+                color: platform.color.withValues(alpha: 0.5),
+              ),
+            ],
           );
         }).toList(),
       ),
