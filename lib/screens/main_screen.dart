@@ -104,9 +104,11 @@ class _MainScreenState extends State<MainScreen> {
     final credential = await storage.getCredential(_currentPlatform!);
 
     if (credential == null) {
-      logError(
-        'No credential found for platform: ${_currentPlatform!.displayName}',
-      );
+      logUi('No credential found for platform: ${_currentPlatform!.displayName}, showing platform selection');
+      setState(() {
+        _currentPlatform = null;
+        _buckets = [];
+      });
       return;
     }
 
@@ -148,7 +150,7 @@ class _MainScreenState extends State<MainScreen> {
       appBar: AppBar(
         title: Text(_currentPlatform?.displayName ?? ''),
         centerTitle: true,
-        backgroundColor: _currentPlatform?.color,
+        backgroundColor: _currentPlatform?.color ?? Colors.blue,
         foregroundColor: Colors.white,
         actions: [
           if (_currentPlatform != null) _buildViewModeToggle(),
@@ -159,7 +161,7 @@ class _MainScreenState extends State<MainScreen> {
           padding: EdgeInsets.zero,
           children: <Widget>[
             DrawerHeader(
-              decoration: BoxDecoration(color: Theme.of(context).primaryColor),
+              decoration: BoxDecoration(color: Colors.blue),
               child: Text(
                 'KyrieCloudHub',
                 style: TextStyle(color: Colors.white, fontSize: 24),
@@ -226,7 +228,7 @@ class _MainScreenState extends State<MainScreen> {
           ? Center(
               child: ElevatedButton(
                 onPressed: () {
-                  logUi('User tapped: 去选择平台');
+                  logUi('User tapped: 去登录');
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -234,7 +236,16 @@ class _MainScreenState extends State<MainScreen> {
                     ),
                   );
                 },
-                child: Text('去选择平台'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blue,
+                  foregroundColor: Colors.white,
+                  padding: EdgeInsets.symmetric(horizontal: 48, vertical: 20),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 4,
+                ),
+                child: Text('去登录', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
               ),
             )
           : _buckets.isEmpty
