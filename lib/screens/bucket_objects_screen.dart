@@ -16,18 +16,10 @@ import '../utils/logger.dart';
 // ignore_for_file: library_private_types_in_public_api
 
 /// 视图模式枚举
-enum ViewMode {
-  list,
-  grid,
-}
+enum ViewMode { list, grid }
 
 /// 加载状态
-enum LoadingState {
-  idle,
-  loading,
-  success,
-  error,
-}
+enum LoadingState { idle, loading, success, error }
 
 class BucketObjectsScreen extends StatefulWidget {
   final Bucket bucket;
@@ -106,7 +98,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       });
     }
 
-    logUi('Loading objects for bucket: ${widget.bucket.name}, prefix: "$_currentPrefix", page: $_currentPage');
+    logUi(
+      'Loading objects for bucket: ${widget.bucket.name}, prefix: "$_currentPrefix", page: $_currentPage',
+    );
 
     final credential = await _storage.getCredential(widget.platform);
     if (credential == null) {
@@ -133,18 +127,26 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       if (!mounted) return;
 
       if (result.success && result.data != null) {
-        logUi('Before setState: page=$_currentPage, objects=${_objects.length}');
+        logUi(
+          'Before setState: page=$_currentPage, objects=${_objects.length}',
+        );
         setState(() {
           // 每次加载都替换数据（传统分页模式）
           _objects = result.data!.objects;
           _hasMore = result.data!.isTruncated;
           _nextMarker = result.data!.nextMarker;
-          _loadingState = _objects.isEmpty ? LoadingState.success : LoadingState.success;
+          _loadingState = _objects.isEmpty
+              ? LoadingState.success
+              : LoadingState.success;
           _errorMessage = '';
           _isLoadingMore = false;
         });
-        logUi('After setState: page=$_currentPage, objects=${_objects.length}, hasMore=$_hasMore');
-        logUi('Loaded ${_objects.length} objects, hasMore: $_hasMore, page: $_currentPage');
+        logUi(
+          'After setState: page=$_currentPage, objects=${_objects.length}, hasMore=$_hasMore',
+        );
+        logUi(
+          'Loaded ${_objects.length} objects, hasMore: $_hasMore, page: $_currentPage',
+        );
       } else {
         _setError(result.errorMessage ?? '加载失败');
         if (mounted) {
@@ -212,10 +214,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           ..._buildSelectionActions(),
         ],
         leading: _isSelectionMode
-            ? IconButton(
-                icon: Icon(Icons.close),
-                onPressed: _exitSelectionMode,
-              )
+            ? IconButton(icon: Icon(Icons.close), onPressed: _exitSelectionMode)
             : IconButton(
                 icon: Icon(Icons.arrow_back),
                 onPressed: () => Navigator.pop(context),
@@ -242,10 +241,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                       decoration: BoxDecoration(
                         color: Colors.red,
                         shape: BoxShape.circle,
-                        border: Border.all(
-                          color: Colors.white,
-                          width: 2,
-                        ),
+                        border: Border.all(color: Colors.white, width: 2),
                       ),
                     ),
                   ),
@@ -391,7 +387,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                 ],
               ),
               title: Text('粘贴'),
-              subtitle: Text('${_clipboardFiles.length} 个文件'),
+              subtitle: Text(_clipboardFiles[0].name),
               onTap: () {
                 Navigator.pop(context);
                 _handlePaste();
@@ -466,7 +462,10 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                 if (!(formKey.currentState?.validate() ?? false)) return;
 
                 final folderName = controller.text.trim();
-                if (_objects.any((obj) => obj.name == folderName && obj.type == ObjectType.folder)) {
+                if (_objects.any(
+                  (obj) =>
+                      obj.name == folderName && obj.type == ObjectType.folder,
+                )) {
                   setState(() {
                     errorText = '文件夹已存在';
                   });
@@ -515,9 +514,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
     if (result.success) {
       logUi('Folder created successfully: $folderName');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('文件夹 "$folderName" 创建成功')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('文件夹 "$folderName" 创建成功')));
       _refresh();
     } else {
       _showErrorSnackBar(result.errorMessage ?? '创建失败');
@@ -526,10 +525,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
   void _showErrorSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-      ),
+      SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
   }
 
@@ -541,9 +537,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         // 加载状态/错误提示
         _buildStatusWidget(),
         // 文件列表
-        Expanded(
-          child: _buildContent(),
-        ),
+        Expanded(child: _buildContent()),
         // 分页控制器
         _buildPaginationControls(),
       ],
@@ -566,15 +560,24 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('加载失败', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
-                    Text(_errorMessage, style: TextStyle(color: Colors.red.shade700, fontSize: 12)),
+                    Text(
+                      '加载失败',
+                      style: TextStyle(
+                        color: Colors.red,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    Text(
+                      _errorMessage,
+                      style: TextStyle(
+                        color: Colors.red.shade700,
+                        fontSize: 12,
+                      ),
+                    ),
                   ],
                 ),
               ),
-              TextButton(
-                onPressed: _refresh,
-                child: Text('重试'),
-              ),
+              TextButton(onPressed: _refresh, child: Text('重试')),
             ],
           ),
         );
@@ -588,7 +591,10 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                 SizedBox(height: 16),
                 Text('该文件夹为空', style: TextStyle(color: Colors.grey.shade600)),
                 SizedBox(height: 8),
-                Text('点击右下角按钮上传文件或创建文件夹', style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
+                Text(
+                  '点击右下角按钮上传文件或创建文件夹',
+                  style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                ),
               ],
             ),
           );
@@ -636,10 +642,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           // 页码信息
           Padding(
             padding: EdgeInsets.symmetric(horizontal: 16),
-            child: Text(
-              '第 $_currentPage 页',
-              style: TextStyle(fontSize: 14),
-            ),
+            child: Text('第 $_currentPage 页', style: TextStyle(fontSize: 14)),
           ),
           // 下一页
           IconButton(
@@ -663,7 +666,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   /// 构建视图模式切换按钮
   Widget _buildViewModeToggle() {
     return IconButton(
-      icon: Icon(_viewMode == ViewMode.list ? Icons.grid_view : Icons.view_list),
+      icon: Icon(
+        _viewMode == ViewMode.list ? Icons.grid_view : Icons.view_list,
+      ),
       onPressed: _toggleViewMode,
       tooltip: _viewMode == ViewMode.list ? '网格视图' : '列表视图',
     );
@@ -690,7 +695,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           title: Text(obj.name, maxLines: 1, overflow: TextOverflow.ellipsis),
           subtitle: isFolder
               ? null
-              : Text('${_formatBytes(obj.size)} • ${_formatDate(obj.lastModified)}'),
+              : Text(
+                  '${_formatBytes(obj.size)} • ${_formatDate(obj.lastModified)}',
+                ),
           selected: isSelected,
           selectedTileColor: Colors.blue.withValues(alpha: 0.1),
           trailing: isFolder
@@ -759,7 +766,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                 color: isSelected ? Colors.blue : Colors.grey.shade300,
               ),
               borderRadius: BorderRadius.circular(8),
-              color: isSelected ? Colors.blue.withValues(alpha: 0.1) : Colors.white,
+              color: isSelected
+                  ? Colors.blue.withValues(alpha: 0.1)
+                  : Colors.white,
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -843,7 +852,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     return [
       // 全选/取消全选
       IconButton(
-        icon: Icon(selectedFileCount == fileCount ? Icons.deselect : Icons.select_all),
+        icon: Icon(
+          selectedFileCount == fileCount ? Icons.deselect : Icons.select_all,
+        ),
         onPressed: fileCount > 0 ? _toggleSelectAll : null,
         tooltip: selectedFileCount == fileCount ? '取消全选' : '全选',
       ),
@@ -888,7 +899,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   }
 
   void _toggleSelectAll() {
-    final fileObjects = _objects.where((o) => o.type == ObjectType.file).toList();
+    final fileObjects = _objects
+        .where((o) => o.type == ObjectType.file)
+        .toList();
     final allSelected = _selectedObjects.length == fileObjects.length;
 
     setState(() {
@@ -903,7 +916,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       }
     });
 
-    logUi('Select all: ${!allSelected}, selected: ${_selectedObjects.length} items');
+    logUi(
+      'Select all: ${!allSelected}, selected: ${_selectedObjects.length} items',
+    );
   }
 
   void _showObjectActions(ObjectFile obj) {
@@ -1010,7 +1025,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   /// 显示重命名对话框
   void _showRenameDialog(ObjectFile obj) {
     final isFolder = obj.type == ObjectType.folder;
-    final TextEditingController controller = TextEditingController(text: obj.name);
+    final TextEditingController controller = TextEditingController(
+      text: obj.name,
+    );
     final formKey = GlobalKey<FormState>();
     String? errorText;
 
@@ -1114,9 +1131,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
     if (result.success) {
       logUi('Rename successful: ${obj.name} -> $newName');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('重命名成功')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('重命名成功')));
       _refresh();
     } else {
       _showErrorSnackBar(result.errorMessage ?? '重命名失败');
@@ -1165,8 +1182,12 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     if (!sourceKey.endsWith('/')) return false;
 
     // 确保 sourceKey 格式一致（以 / 结尾）
-    final normalizedSource = sourceKey.endsWith('/') ? sourceKey : '$sourceKey/';
-    final normalizedTarget = targetPrefix.endsWith('/') ? targetPrefix : '$targetPrefix/';
+    final normalizedSource = sourceKey.endsWith('/')
+        ? sourceKey
+        : '$sourceKey/';
+    final normalizedTarget = targetPrefix.endsWith('/')
+        ? targetPrefix
+        : '$targetPrefix/';
 
     // 如果目标路径以源路径开头，说明源是目标的父目录
     return normalizedTarget.startsWith(normalizedSource);
@@ -1191,13 +1212,17 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
       // 检查目标目录是否已存在同名文件或文件夹
       final targetKey = targetPrefix + obj.name;
-      if (_objects.any((existing) => existing.key == targetKey || existing.name == obj.name)) {
+      if (_objects.any(
+        (existing) => existing.key == targetKey || existing.name == obj.name,
+      )) {
         _showErrorSnackBar('目标目录已存在 "${obj.name}"，无法粘贴');
         return;
       }
     }
 
-    logUi('Pasting ${_clipboardFiles.length} items to: $targetPrefix, isCut: $_isCutOperation');
+    logUi(
+      'Pasting ${_clipboardFiles.length} items to: $targetPrefix, isCut: $_isCutOperation',
+    );
 
     // 获取凭证并创建API
     final credential = await _storage.getCredential(widget.platform);
@@ -1235,7 +1260,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                   SizedBox(
                     width: 200,
                     child: LinearProgressIndicator(
-                      value: _clipboardFiles.isNotEmpty ? currentIndex / _clipboardFiles.length : 0,
+                      value: _clipboardFiles.isNotEmpty
+                          ? currentIndex / _clipboardFiles.length
+                          : 0,
                     ),
                   ),
                   SizedBox(height: 8),
@@ -1268,7 +1295,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
           if (!copyResult.success) {
             failCount++;
-            logError('Failed to copy folder: ${obj.name}, ${copyResult.errorMessage}');
+            logError(
+              'Failed to copy folder: ${obj.name}, ${copyResult.errorMessage}',
+            );
             continue;
           }
         } else {
@@ -1305,7 +1334,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         }
 
         successCount++;
-        logUi('Successfully ${_isCutOperation ? 'moved' : 'copied'}: ${obj.name}');
+        logUi(
+          'Successfully ${_isCutOperation ? 'moved' : 'copied'}: ${obj.name}',
+        );
       } catch (e) {
         failCount++;
         logError('Failed to process: ${obj.name}, $e');
@@ -1325,9 +1356,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       // 显示结果
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(_isCutOperation
-              ? '成功移动 $successCount 个${failCount > 0 ? '，$failCount 个失败' : ''}'
-              : '成功复制 $successCount 个${failCount > 0 ? '，$failCount 个失败' : ''}'),
+          content: Text(
+            _isCutOperation
+                ? '成功移动 $successCount 个${failCount > 0 ? '，$failCount 个失败' : ''}'
+                : '成功复制 $successCount 个${failCount > 0 ? '，$failCount 个失败' : ''}',
+          ),
         ),
       );
 
@@ -1438,7 +1471,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       if (!mounted) return;
 
       // 过滤掉文件夹标记对象（以 / 结尾的只是标记，不是实际文件）
-      final fileObjects = allObjects.where((obj) => !obj.key.endsWith('/')).toList();
+      final fileObjects = allObjects
+          .where((obj) => !obj.key.endsWith('/'))
+          .toList();
 
       if (fileObjects.isEmpty) {
         closeProgressDialog();
@@ -1446,7 +1481,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         return;
       }
 
-      logUi('Found ${fileObjects.length} file objects (excluding folder markers)');
+      logUi(
+        'Found ${fileObjects.length} file objects (excluding folder markers)',
+      );
 
       // 关闭扫描对话框，准备开始下载
       closeProgressDialog();
@@ -1464,7 +1501,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         final saveFile = File(savePath);
         saveFile.parent.createSync(recursive: true);
 
-        updateProgress(downloadedCount + failedCount, fileObjects.length, '正在下载: ${obj.name}');
+        updateProgress(
+          downloadedCount + failedCount,
+          fileObjects.length,
+          '正在下载: ${obj.name}',
+        );
 
         final result = await api.downloadObject(
           bucketName: widget.bucket.name,
@@ -1497,10 +1538,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       final targetDir = '$directoryPath/${folder.name}';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('下载完成\n保存到: $targetDir\n成功: $downloadedCount 个${failedCount > 0 ? '，失败: $failedCount 个' : ''}'),
+          content: Text(
+            '下载完成\n保存到: $targetDir\n成功: $downloadedCount 个${failedCount > 0 ? '，失败: $failedCount 个' : ''}',
+          ),
         ),
       );
-
     } catch (e) {
       logError('Folder download failed: $e');
       if (mounted) {
@@ -1513,7 +1555,10 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   }
 
   /// 递归列出文件夹内所有对象
-  Future<List<ObjectFile>> _listAllObjects(ICloudPlatformApi api, String prefix) async {
+  Future<List<ObjectFile>> _listAllObjects(
+    ICloudPlatformApi api,
+    String prefix,
+  ) async {
     final allObjects = <ObjectFile>[];
     String? marker;
 
@@ -1600,12 +1645,12 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                   SizedBox(height: 16),
                   SizedBox(
                     width: 200,
-                    child: LinearProgressIndicator(
-                      value: progress,
-                    ),
+                    child: LinearProgressIndicator(value: progress),
                   ),
                   SizedBox(height: 8),
-                  Text('${(progress * 100).toInt()}% (${_formatBytes(received)} / ${_formatBytes(total)})'),
+                  Text(
+                    '${(progress * 100).toInt()}% (${_formatBytes(received)} / ${_formatBytes(total)})',
+                  ),
                 ],
               ),
             );
@@ -1616,46 +1661,52 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
     // 执行下载（非阻塞）
     logUi('Starting download: ${obj.key}');
-    unawaited(api.downloadObject(
-      bucketName: widget.bucket.name,
-      region: widget.bucket.region,
-      objectKey: obj.key,
-      onProgress: (r, t) {
-        dialogSetState?.call(() {
-          received = r;
-          total = t > 0 ? t : 1;
-          progress = total > 0 ? r / total : 0.0;
-        });
-      },
-    ).then((downloadResult) async {
-      if (!mounted) return;
+    unawaited(
+      api
+          .downloadObject(
+            bucketName: widget.bucket.name,
+            region: widget.bucket.region,
+            objectKey: obj.key,
+            onProgress: (r, t) {
+              dialogSetState?.call(() {
+                received = r;
+                total = t > 0 ? t : 1;
+                progress = total > 0 ? r / total : 0.0;
+              });
+            },
+          )
+          .then((downloadResult) async {
+            if (!mounted) return;
 
-      // 关闭进度对话框
-      Navigator.of(context).pop();
+            // 关闭进度对话框
+            Navigator.of(context).pop();
 
-      if (downloadResult.success && downloadResult.data != null) {
-        logUi('Download completed, saving file: ${obj.name}');
+            if (downloadResult.success && downloadResult.data != null) {
+              logUi('Download completed, saving file: ${obj.name}');
 
-        // 保存文件到用户选择的位置
-        try {
-          final file = File(savePath);
-          await file.writeAsBytes(downloadResult.data!);
+              // 保存文件到用户选择的位置
+              try {
+                final file = File(savePath);
+                await file.writeAsBytes(downloadResult.data!);
 
-          logUi('File saved to: $savePath');
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('下载成功: ${obj.name}\n保存到: $savePath')),
-            );
-          }
-        } catch (e) {
-          logError('Failed to save file: $e');
-          _showErrorSnackBar('下载失败：保存文件失败');
-        }
-      } else {
-        logError('Download failed: ${downloadResult.errorMessage}');
-        _showErrorSnackBar('下载失败: ${downloadResult.errorMessage}');
-      }
-    }));
+                logUi('File saved to: $savePath');
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('下载成功: ${obj.name}\n保存到: $savePath'),
+                    ),
+                  );
+                }
+              } catch (e) {
+                logError('Failed to save file: $e');
+                _showErrorSnackBar('下载失败：保存文件失败');
+              }
+            } else {
+              logError('Download failed: ${downloadResult.errorMessage}');
+              _showErrorSnackBar('下载失败: ${downloadResult.errorMessage}');
+            }
+          }),
+    );
   }
 
   Future<void> _deleteObject(ObjectFile obj) async {
@@ -1714,9 +1765,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
       if (result.success) {
         logUi('Delete successful: ${obj.name}');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('删除成功: ${obj.name}')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('删除成功: ${obj.name}')));
         // 刷新文件列表
         _refresh();
       } else {
@@ -1755,9 +1806,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     logUi('User tapped upload button');
 
     // 弹出文件选择器，支持多选
-    final result = await FilePicker.platform.pickFiles(
-      allowMultiple: true,
-    );
+    final result = await FilePicker.platform.pickFiles(allowMultiple: true);
 
     if (result == null || result.files.isEmpty) {
       logUi('User cancelled file selection');
@@ -1805,9 +1854,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                   SizedBox(height: 16),
                   SizedBox(
                     width: 200,
-                    child: LinearProgressIndicator(
-                      value: currentProgress,
-                    ),
+                    child: LinearProgressIndicator(value: currentProgress),
                   ),
                   SizedBox(height: 8),
                   Text('${(currentProgress * 100).toInt()}%'),
@@ -1841,7 +1888,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         dialogSetState?.call(() {});
       }
 
-      logUi('Uploading file: ${pickedFile.name}, size: ${pickedFile.size} bytes');
+      logUi(
+        'Uploading file: ${pickedFile.name}, size: ${pickedFile.size} bytes',
+      );
 
       // 大文件使用分块上传，小文件使用简单上传
       if (fileSize > largeFileThreshold) {
@@ -1893,13 +1942,17 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       Navigator.of(context).pop();
       if (successCount > 0) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('成功上传 $successCount 个文件${failCount > 0 ? '，$failCount 个失败' : ''}')),
+          SnackBar(
+            content: Text(
+              '成功上传 $successCount 个文件${failCount > 0 ? '，$failCount 个失败' : ''}',
+            ),
+          ),
         );
       }
       if (failCount > 0 && successCount == 0) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('上传失败：所有文件上传失败')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('上传失败：所有文件上传失败')));
       }
       // 刷新文件列表
       _refresh();
@@ -2013,7 +2066,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     if (mounted) {
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('成功下载 $successCount 个文件${failCount > 0 ? '，$failCount 个失败' : ''}')),
+        SnackBar(
+          content: Text(
+            '成功下载 $successCount 个文件${failCount > 0 ? '，$failCount 个失败' : ''}',
+          ),
+        ),
       );
       // 退出选择模式
       _exitSelectionMode();
@@ -2087,7 +2144,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     if (!mounted) return;
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('成功删除 $successCount 个文件${failCount > 0 ? '，$failCount 个失败' : ''}')),
+      SnackBar(
+        content: Text(
+          '成功删除 $successCount 个文件${failCount > 0 ? '，$failCount 个失败' : ''}',
+        ),
+      ),
     );
     // 等待一段时间后再刷新（腾讯云COS使用最终一致性模型）
     await Future.delayed(const Duration(milliseconds: 500));
@@ -2135,6 +2196,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     if (folderKey.endsWith('/')) {
       folderKey = folderKey.substring(0, folderKey.length - 1);
     }
-    return folderKey.split('/').where((e) => e.isNotEmpty).lastOrNull ?? folderKey;
+    return folderKey.split('/').where((e) => e.isNotEmpty).lastOrNull ??
+        folderKey;
   }
 }
