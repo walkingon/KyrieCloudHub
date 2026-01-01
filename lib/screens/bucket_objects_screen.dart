@@ -2172,10 +2172,12 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     }
   }
 
-  /// 格式化日期时间
+  /// 格式化日期时间（转换为东八区北京时间）
   String _formatDate(DateTime? date) {
     if (date == null) return '未知';
-    return '${date.year}-${_pad(date.month)}-${_pad(date.day)} ${_pad(date.hour)}:${_pad(date.minute)}';
+    // 服务器返回的是UTC时间，转换为东八区（UTC+8）
+    final beijingTime = date.add(Duration(hours: 8));
+    return '${beijingTime.year}-${_pad(beijingTime.month)}-${_pad(beijingTime.day)} ${_pad(beijingTime.hour)}:${_pad(beijingTime.minute)}';
   }
 
   /// 补零
