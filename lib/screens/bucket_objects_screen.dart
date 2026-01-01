@@ -670,8 +670,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
               ),
             ],
           ),
-          Spacer(),
-          // 中间分页导航
+          // 分页导航
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -683,11 +682,8 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
               ),
               // 页码信息
               Padding(
-                padding: EdgeInsets.symmetric(horizontal: 16),
-                child: Text(
-                  '第 $_currentPage 页',
-                  style: TextStyle(fontSize: 14),
-                ),
+                padding: EdgeInsets.symmetric(horizontal: 2),
+                child: Text('$_currentPage', style: TextStyle(fontSize: 14)),
               ),
               // 下一页
               IconButton(
@@ -705,8 +701,8 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                 ),
             ],
           ),
-          // 右侧占位
-          SizedBox(width: 100),
+          //右侧占位
+          Spacer(),
         ],
       ),
     );
