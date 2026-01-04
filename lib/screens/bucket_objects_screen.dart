@@ -1698,6 +1698,18 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   Future<void> _downloadObject(ObjectFile obj) async {
     logUi('Starting download for: ${obj.name}');
 
+    // 先让用户选择保存目录
+    final directoryPath = await FilePicker.platform.getDirectoryPath(
+      dialogTitle: '选择保存位置',
+    );
+
+    if (directoryPath == null || directoryPath.isEmpty) {
+      logUi('User cancelled directory selection');
+      return;
+    }
+
+    logUi('Selected directory: $directoryPath');
+
     // 获取凭证并创建API
     final credential = await _storage.getCredential(widget.platform);
     if (credential == null) {
@@ -1719,7 +1731,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     double progress = 0.0;
     void Function(VoidCallback fn)? dialogSetState;
 
-    // 显示下载进度对话框（不阻塞下载）
+    // 显示下载进度对话框
     if (!mounted) return;
     showDialog(
       context: context,
@@ -1771,26 +1783,24 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     Navigator.of(context).pop();
 
     if (downloadResult.success && downloadResult.data != null) {
-      logUi('Download completed, opening save dialog');
+      logUi('Download completed, saving file');
 
-      // 让用户选择保存位置（Android需要传入bytes）
-      final result = await FilePicker.platform.saveFile(
-        dialogTitle: '保存文件',
-        fileName: obj.name,
-        bytes: Uint8List.fromList(downloadResult.data!),
-      );
-
-      if (result != null) {
-        logUi('File saved to: $result');
+      // 保存文件到用户选择的位置
+      final savePath = '$directoryPath/${obj.name}';
+      try {
+        final file = File(savePath);
+        await file.writeAsBytes(downloadResult.data!);
+        logUi('File saved to: $savePath');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text('下载成功: ${obj.name}'),
+              content: Text('下载成功: ${obj.name}\n保存到: $savePath'),
             ),
           );
         }
-      } else {
-        logUi('User cancelled file save dialog');
+      } catch (e) {
+        logError('Failed to save file: $e');
+        _showErrorSnackBar('下载失败：保存文件失败');
       }
     } else {
       logError('Download failed: ${downloadResult.errorMessage}');
