@@ -1698,20 +1698,6 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   Future<void> _downloadObject(ObjectFile obj) async {
     logUi('Starting download for: ${obj.name}');
 
-    // 让用户选择保存位置
-    logUi('Opening file picker for save location');
-    final savePath = await FilePicker.platform.saveFile(
-      dialogTitle: '保存文件',
-      fileName: obj.name,
-    );
-
-    if (savePath == null || savePath.isEmpty) {
-      logUi('User cancelled file save dialog');
-      return;
-    }
-
-    logUi('User selected save path: $savePath');
-
     // 获取凭证并创建API
     final credential = await _storage.getCredential(widget.platform);
     if (credential == null) {
@@ -1765,54 +1751,51 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       },
     );
 
-    // 执行下载（非阻塞）
+    // 执行下载
     logUi('Starting download: ${obj.key}');
-    unawaited(
-      api
-          .downloadObject(
-            bucketName: widget.bucket.name,
-            region: widget.bucket.region,
-            objectKey: obj.key,
-            onProgress: (r, t) {
-              dialogSetState?.call(() {
-                received = r;
-                total = t > 0 ? t : 1;
-                progress = total > 0 ? r / total : 0.0;
-              });
-            },
-          )
-          .then((downloadResult) async {
-            if (!mounted) return;
-
-            // 关闭进度对话框
-            Navigator.of(context).pop();
-
-            if (downloadResult.success && downloadResult.data != null) {
-              logUi('Download completed, saving file: ${obj.name}');
-
-              // 保存文件到用户选择的位置
-              try {
-                final file = File(savePath);
-                await file.writeAsBytes(downloadResult.data!);
-
-                logUi('File saved to: $savePath');
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('下载成功: ${obj.name}\n保存到: $savePath'),
-                    ),
-                  );
-                }
-              } catch (e) {
-                logError('Failed to save file: $e');
-                _showErrorSnackBar('下载失败：保存文件失败');
-              }
-            } else {
-              logError('Download failed: ${downloadResult.errorMessage}');
-              _showErrorSnackBar('下载失败: ${downloadResult.errorMessage}');
-            }
-          }),
+    final downloadResult = await api.downloadObject(
+      bucketName: widget.bucket.name,
+      region: widget.bucket.region,
+      objectKey: obj.key,
+      onProgress: (r, t) {
+        dialogSetState?.call(() {
+          received = r;
+          total = t > 0 ? t : 1;
+          progress = total > 0 ? r / total : 0.0;
+        });
+      },
     );
+
+    // 关闭进度对话框
+    if (!mounted) return;
+    Navigator.of(context).pop();
+
+    if (downloadResult.success && downloadResult.data != null) {
+      logUi('Download completed, opening save dialog');
+
+      // 让用户选择保存位置（Android需要传入bytes）
+      final result = await FilePicker.platform.saveFile(
+        dialogTitle: '保存文件',
+        fileName: obj.name,
+        bytes: Uint8List.fromList(downloadResult.data!),
+      );
+
+      if (result != null) {
+        logUi('File saved to: $result');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('下载成功: ${obj.name}'),
+            ),
+          );
+        }
+      } else {
+        logUi('User cancelled file save dialog');
+      }
+    } else {
+      logError('Download failed: ${downloadResult.errorMessage}');
+      _showErrorSnackBar('下载失败: ${downloadResult.errorMessage}');
+    }
   }
 
   Future<void> _deleteObject(ObjectFile obj) async {
