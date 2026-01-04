@@ -1139,15 +1139,23 @@ class TencentCosApi implements ICloudPlatformApi {
     }
 
     final statusCode = response.statusCode ?? 0;
-    final errorData = response.data;
+    dynamic errorData = response.data;
 
     if (errorData == null) {
       return 'HTTP $statusCode error: ${e.message}';
     }
 
+    // 处理字节数组格式的错误响应（腾讯云返回二进制XML）
+    String dataStr;
+    if (errorData is List<int>) {
+      // 将字节数组解码为UTF-8字符串
+      dataStr = utf8.decode(errorData);
+    } else {
+      dataStr = errorData.toString();
+    }
+
     // 使用 xml 包解析错误响应
     try {
-      final dataStr = errorData.toString();
       final document = XmlDocument.parse(dataStr);
       final errorElement = document.findElements('Error').first;
 
@@ -1184,7 +1192,7 @@ class TencentCosApi implements ICloudPlatformApi {
       return sb.toString();
     } catch (parseError) {
       // 如果 XML 解析失败，回退到原始方式
-      return 'HTTP $statusCode error: $errorData';
+      return 'HTTP $statusCode error: $dataStr';
     }
   }
 }
