@@ -1,7 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math';
-import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:xml/xml.dart';
@@ -10,8 +8,9 @@ import '../../models/object_file.dart';
 import '../../models/platform_credential.dart';
 import '../../utils/logger.dart';
 import 'cloud_platform_api.dart';
-import '../../utils/file_chunk_reader.dart';
 import 'aliyun/aliyun_signature_generator.dart';
+import 'aliyun/aliyun_multipart_upload_manager.dart';
+import 'aliyun/aliyun_multipart_download_manager.dart';
 
 /// 阿里云OSS API实现
 ///
@@ -132,12 +131,6 @@ class AliyunOssApi implements ICloudPlatformApi {
     // 额外编码圆括号 ( -> %28, ) -> %29
     encoded = encoded.replaceAll('(', '%28').replaceAll(')', '%29');
     return encoded;
-  }
-
-  /// 生成分块ETag（用于备用方案）
-  String _generatePartETag(Uint8List data) {
-    final hash = md5.convert(data);
-    return hash.toString();
   }
 
   /// 构建请求头（包含签名）
@@ -659,126 +652,46 @@ class AliyunOssApi implements ICloudPlatformApi {
       log('[AliyunOSS] 开始分块下载: $objectKey -> ${outputFile.path}');
       log('[AliyunOSS] 分块大小: $chunkSize bytes, 串行下载模式');
 
-      final host = _getEndpoint(bucketName);
-      final url = 'https://$host/${_encodePath(objectKey)}';
-
-      // 1. 获取文件大小 (HEAD请求)
-      final headHeaders = _buildHeaders(
-        method: 'HEAD',
+      // 创建分块下载管理器
+      final downloadManager = AliyunMultipartDownloadManager(
+        credential: credential,
+        dio: _dio,
         bucketName: bucketName,
+        region: region,
         objectKey: objectKey,
+        chunkSize: chunkSize,
       );
 
-      log('[AliyunOSS] 获取文件大小...');
-      final headResponse = await _dio.head(
-        url,
-        options: Options(headers: headHeaders),
-      );
-      if (headResponse.statusCode != 200) {
-        logError('[AliyunOSS] 获取文件大小失败: ${headResponse.statusCode}');
-        return ApiResponse.error(
-          'Failed to get file size',
-          statusCode: headResponse.statusCode,
+      // 设置签名方法（包装为异步）
+      downloadManager.getSignature = ({
+        required String method,
+        String? bucketName,
+        String? objectKey,
+        required Map<String, String> headers,
+        Map<String, String>? queryParams,
+      }) async {
+        return _getSignatureV4(
+          method: method,
+          bucketName: bucketName,
+          objectKey: objectKey,
+          headers: headers,
+          queryParams: queryParams,
         );
+      };
+
+      // 执行下载
+      final success = await downloadManager.downloadFile(
+        outputFile,
+        onProgress: onProgress,
+      );
+
+      if (success) {
+        log('[AliyunOSS] 分块下载成功: ${outputFile.path}');
+        return ApiResponse.success(null);
+      } else {
+        logError('[AliyunOSS] 分块下载失败: ${downloadManager.errorMessage}');
+        return ApiResponse.error(downloadManager.errorMessage ?? '分块下载失败');
       }
-
-      final contentLength = headResponse.headers['content-length'];
-      if (contentLength == null || contentLength.isEmpty) {
-        logError('[AliyunOSS] Content-Length header not found');
-        return ApiResponse.error('Content-Length header not found');
-      }
-      final totalBytes = int.parse(contentLength.first);
-      log('[AliyunOSS] 文件总大小: $totalBytes bytes');
-
-      // 2. 计算分块范围
-      final chunks = <Map<String, dynamic>>[];
-      final totalChunks = (totalBytes / chunkSize).ceil();
-      for (int i = 0; i < totalChunks; i++) {
-        final start = i * chunkSize;
-        final end = min<int>(start + chunkSize - 1, totalBytes - 1);
-        chunks.add({
-          'partNumber': i + 1,
-          'start': start,
-          'end': end,
-          'size': end - start + 1,
-          'data': null,
-        });
-      }
-      log('[AliyunOSS] 分块数: ${chunks.length}, 开始串行下载...');
-
-      // 3. 串行下载分块（逐个按顺序下载）
-      int downloadedBytes = 0;
-      int successCount = 0;
-      int failCount = 0;
-
-      for (int i = 0; i < chunks.length; i++) {
-        final chunk = chunks[i];
-        final partNumber = chunk['partNumber'] as int;
-        final start = chunk['start'] as int;
-        final end = chunk['end'] as int;
-        final chunkSize_ = chunk['size'] as int;
-
-        //log('[AliyunOSS] 下载分块 $partNumber/${chunks.length}: bytes=$start-$end ($chunkSize_ bytes)');
-
-        try {
-          final rangeHeaders = _buildHeaders(
-            method: 'GET',
-            bucketName: bucketName,
-            objectKey: objectKey,
-            extraHeaders: {'Range': 'bytes=$start-$end'},
-          );
-
-          final response = await _dio.get(
-            url,
-            options: Options(
-              headers: rangeHeaders,
-              responseType: ResponseType.bytes,
-            ),
-          );
-
-          if (response.statusCode == 206) {
-            chunk['data'] = Uint8List.fromList(response.data as List<int>);
-            downloadedBytes += chunkSize_;
-            onProgress?.call(downloadedBytes, totalBytes);
-            successCount++;
-            log(
-              '[AliyunOSS] 分块 $partNumber 下载成功 ($downloadedBytes/$totalBytes bytes)',
-            );
-          } else {
-            failCount++;
-            logError(
-              '[AliyunOSS] 分块 $partNumber 下载失败: HTTP ${response.statusCode}',
-            );
-            return ApiResponse.error(
-              'Failed to download chunk $partNumber',
-              statusCode: response.statusCode,
-            );
-          }
-        } catch (e) {
-          failCount++;
-          logError('[AliyunOSS] 分块 $partNumber 下载异常: $e');
-          return ApiResponse.error('Failed to download chunk $partNumber: $e');
-        }
-      }
-
-      log('[AliyunOSS] 所有分块下载完成: 成功 $successCount, 失败 $failCount');
-
-      // 4. 合并分块到文件
-      log('[AliyunOSS] 开始合并分块到文件...');
-      final raf = await outputFile.open(mode: FileMode.writeOnly);
-      try {
-        for (final chunk in chunks) {
-          if (chunk['data'] != null) {
-            await raf.writeFrom(chunk['data'] as Uint8List);
-            chunk['data'] = null; // 释放内存
-          }
-        }
-      } finally {
-        await raf.close();
-      }
-
-      log('[AliyunOSS] 分块下载成功: ${outputFile.path}');
-      return ApiResponse.success(null);
     } on DioException catch (e) {
       final errorDetail = _parseAliyunError(e);
       logError('[AliyunOSS] DioException: $errorDetail');
@@ -1338,209 +1251,73 @@ class AliyunOssApi implements ICloudPlatformApi {
     try {
       log('[AliyunOSS] 开始分块上传: ${file.path} -> $objectKey');
 
-      final host = _getEndpoint(bucketName);
-      final objectPath = '/$objectKey';
-
-      // 1. 初始化分块上传
-      final initUrl = 'https://$host$objectPath?uploads';
-
-      final initHeaders = _buildHeaders(
-        method: 'POST',
+      // 创建分片上传管理器
+      final uploadManager = AliyunMultipartUploadManager(
+        credential: credential,
+        dio: _dio,
         bucketName: bucketName,
+        region: region,
         objectKey: objectKey,
-        extraHeaders: {'Content-Type': 'application/xml'},
-        queryParams: {'uploads': ''},
+        chunkSize: chunkSize,
       );
 
-      log('[AliyunOSS] 初始化分块上传...');
-      final initResponse = await _dio.post(
-        initUrl,
-        options: Options(headers: initHeaders),
-      );
-
-      if (initResponse.statusCode != 200) {
-        return ApiResponse.error(
-          'Failed to initiate multipart upload',
-          statusCode: initResponse.statusCode,
+      // 设置签名方法（包装为异步）
+      uploadManager.getSignature = ({
+        required String method,
+        String? bucketName,
+        String? objectKey,
+        required Map<String, String> headers,
+        Map<String, String>? queryParams,
+      }) async {
+        return _getSignatureV4(
+          method: method,
+          bucketName: bucketName,
+          objectKey: objectKey,
+          headers: headers,
+          queryParams: queryParams,
         );
-      }
+      };
 
-      // 解析UploadId - Dio使用ResponseType.plain时data可能是List<int>
-      String responseData;
-      if (initResponse.data is List<int>) {
-        responseData = utf8.decode(initResponse.data as List<int>);
-      } else {
-        responseData = initResponse.data?.toString() ?? '';
-      }
-      log('[AliyunOSS] 响应数据: $responseData');
-
-      String? uploadId;
-      try {
-        final document = XmlDocument.parse(responseData);
-        // 使用 findAllElements 递归查找所有匹配的元素
-        final uploadIdElements = document.findAllElements('UploadId');
-        if (uploadIdElements.isNotEmpty) {
-          uploadId = uploadIdElements.first.innerText;
-        } else {
-          // 备选方案：尝试从根元素开始查找
-          final root = document.rootElement;
-          uploadId = root.getElement('UploadId')?.innerText;
+      // 状态映射：将AliyunMultipartUploadStatus映射到原来的int状态码
+      uploadManager.onStatusChanged = (status) {
+        int statusCode;
+        switch (status) {
+          case AliyunMultipartUploadStatus.initiating:
+            statusCode = 0; // Initiating
+            break;
+          case AliyunMultipartUploadStatus.uploading:
+            statusCode = 1; // Uploading
+            break;
+          case AliyunMultipartUploadStatus.completing:
+            statusCode = 2; // Completing
+            break;
+          case AliyunMultipartUploadStatus.completed:
+            statusCode = 3; // Completed
+            break;
+          default:
+            statusCode = -1;
         }
-      } catch (e) {
-        logError('[AliyunOSS] 解析UploadId失败: $e');
-        return ApiResponse.error('Failed to parse UploadId');
-      }
+        onStatusChanged?.call(statusCode);
+      };
 
-      log('[AliyunOSS] 获取到UploadId: $uploadId');
-
-      // 2. 使用FileChunkReader分块读取并上传
-      final fileSize = await file.length();
-      final uploadedParts = <Map<String, dynamic>>[];
-
-      final chunkReader = FileChunkReader(chunkSize: chunkSize);
-      await chunkReader.streamChunks(
+      // 执行上传
+      final success = await uploadManager.uploadFile(
         file,
-        onChunk: (chunk) async {
-          if (onStatusChanged != null) {
-            onStatusChanged(1); // 1: Uploading
-          }
-
-          final partNumber = chunk.partNumber;
-
-          // 计算当前块的MD5
-          final md5Hash = md5.convert(chunk.data);
-          final contentMd5 = base64Encode(md5Hash.bytes);
-
-          // 上传单个分块
-          final uploadUrl =
-              'https://$host$objectPath?partNumber=$partNumber&uploadId=$uploadId';
-
-          final uploadHeaders = _buildHeaders(
-            method: 'PUT',
-            bucketName: bucketName,
-            objectKey: objectKey,
-            extraHeaders: {
-              'Content-Type': 'application/octet-stream',
-              'Content-MD5': contentMd5,
-            },
-            queryParams: {
-              'partNumber': partNumber.toString(),
-              'uploadId': uploadId!,
-            },
-          );
-
-          final uploadResponse = await _dio.put(
-            uploadUrl,
-            data: chunk.data,
-            options: Options(headers: uploadHeaders),
-          );
-
-          // 直接打印响应状态（绕过可能的日志拦截问题）
-          final statusCode = uploadResponse.statusCode ?? 0;
-          final etagHeader =
-              uploadResponse.headers['etag']?.first ?? 'NOT_FOUND';
-          log(
-            '[AliyunOSS] 分块 $partNumber 响应: status=$statusCode, etag=$etagHeader',
-          );
-
-          if (statusCode == 200) {
-            // 记录已上传的分块信息
-            final etagHeaders = uploadResponse.headers['etag'];
-            final etag = etagHeaders != null && etagHeaders.isNotEmpty
-                ? etagHeaders.first.replaceAll('"', '')
-                : '';
-            uploadedParts.add({
-              'PartNumber': partNumber,
-              'ETag': etag.isNotEmpty ? etag : _generatePartETag(chunk.data),
-            });
-
-            onProgress?.call(chunk.offset + chunk.size, fileSize);
-            log(
-              '[AliyunOSS] 分块 $partNumber 上传成功, ETag: ${uploadedParts.last['ETag']}',
-            );
-          } else {
-            logError(
-              '[AliyunOSS] 分块 $partNumber 上传失败: ${uploadResponse.statusCode}',
-            );
-            throw ApiResponse.error(
-              'Failed to upload part $partNumber',
-              statusCode: uploadResponse.statusCode,
-            );
-          }
-        },
-        onProgress: (bytesRead, totalBytes) {
-          onProgress?.call(bytesRead, totalBytes);
-        },
+        onProgress: onProgress,
       );
 
-      // 3. 完成分块上传
-      if (onStatusChanged != null) {
-        onStatusChanged(2); // 2: Completing
-      }
-
-      log('[AliyunOSS] 开始完成分块上传...');
-
-      // 按PartNumber排序
-      uploadedParts.sort((a, b) => a['PartNumber'].compareTo(b['PartNumber']));
-
-      // 构建完成请求体
-      final completeXml = StringBuffer();
-      completeXml.write('<?xml version="1.0" encoding="UTF-8"?>');
-      completeXml.write('<CompleteMultipartUpload>');
-      for (final part in uploadedParts) {
-        completeXml.write('<Part>');
-        completeXml.write('<PartNumber>${part['PartNumber']}</PartNumber>');
-        completeXml.write('<ETag>${part['ETag']}</ETag>');
-        completeXml.write('</Part>');
-      }
-      completeXml.write('</CompleteMultipartUpload>');
-
-      final completeUrl = 'https://$host$objectPath?uploadId=$uploadId';
-      final completeBody = completeXml.toString();
-      final completeBodyBytes = utf8.encode(completeBody);
-
-      // 计算Content-MD5
-      final completeMd5 = md5.convert(completeBodyBytes);
-      final completeMd5Str = base64Encode(completeMd5.bytes);
-
-      final completeHeaders = _buildHeaders(
-        method: 'POST',
-        bucketName: bucketName,
-        objectKey: objectKey,
-        extraHeaders: {
-          'Content-Type': 'application/xml',
-          'Content-MD5': completeMd5Str,
-        },
-        queryParams: {'uploadId': uploadId!},
-      );
-
-      final completeResponse = await _dio.post(
-        completeUrl,
-        data: completeBodyBytes,
-        options: Options(headers: completeHeaders),
-      );
-
-      if (completeResponse.statusCode == 200) {
-        log('[AliyunOSS] 分块上传完成');
-        if (onStatusChanged != null) {
-          onStatusChanged(3); // 3: Completed
-        }
+      if (success) {
+        log('[AliyunOSS] 分块上传成功');
         return ApiResponse.success(null);
       } else {
-        logError('[AliyunOSS] 完成分块上传失败: ${completeResponse.statusCode}');
-        return ApiResponse.error(
-          'Failed to complete multipart upload',
-          statusCode: completeResponse.statusCode,
-        );
+        logError('[AliyunOSS] 分块上传失败: ${uploadManager.errorMessage}');
+        return ApiResponse.error(uploadManager.errorMessage ?? '分块上传失败');
       }
     } on DioException catch (e) {
       final errorDetail = _parseAliyunError(e);
       logError('[AliyunOSS] DioException: $errorDetail');
       return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
     } catch (e, stack) {
-      if (e is ApiResponse) {
-        return e;
-      }
       logError('[AliyunOSS] 分块上传异常: $e', stack);
       return ApiResponse.error(e.toString());
     }
