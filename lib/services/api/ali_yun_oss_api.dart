@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
@@ -589,10 +590,11 @@ class AliyunOssApi implements ICloudPlatformApi {
   }
 
   @override
-  Future<ApiResponse<List<int>>> downloadObject({
+  Future<ApiResponse<void>> downloadObject({
     required String bucketName,
     required String region,
     required String objectKey,
+    required File outputFile,
     void Function(int received, int total)? onProgress,
   }) async {
     try {
@@ -607,15 +609,19 @@ class AliyunOssApi implements ICloudPlatformApi {
         objectKey: objectKey,
       );
 
+      // 使用流式响应，逐步写入文件
       final response = await _dio.get(
         url,
-        options: Options(headers: headers, responseType: ResponseType.bytes),
+        options: Options(headers: headers, responseType: ResponseType.stream),
         onReceiveProgress: onProgress,
       );
 
       if (response.statusCode == 200) {
+        final stream = response.data as Stream<List<int>>;
+        final fileSink = outputFile.openWrite();
+        await stream.pipe(fileSink);
         log('[AliyunOSS] 下载成功');
-        return ApiResponse.success(response.data);
+        return ApiResponse.success(null);
       } else {
         return ApiResponse.error(
           'Failed to download object',
@@ -628,6 +634,160 @@ class AliyunOssApi implements ICloudPlatformApi {
       return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
     } catch (e) {
       logError('[AliyunOSS] 下载异常: $e');
+      return ApiResponse.error(e.toString());
+    }
+  }
+
+  @override
+  Future<ApiResponse<void>> downloadObjectMultipart({
+    required String bucketName,
+    required String region,
+    required String objectKey,
+    required File outputFile,
+    int chunkSize = kDefaultChunkSize,
+    int concurrency = kDefaultConcurrency,
+    void Function(int received, int total)? onProgress,
+  }) async {
+    try {
+      log('[AliyunOSS] 开始分块下载: $objectKey -> ${outputFile.path}');
+
+      final host = _getEndpoint(bucketName);
+      final url = 'https://$host/${_encodePath(objectKey)}';
+
+      // 1. 获取文件大小 (HEAD请求)
+      final headHeaders = _buildHeaders(
+        method: 'HEAD',
+        bucketName: bucketName,
+        objectKey: objectKey,
+      );
+
+      final headResponse = await _dio.head(url, options: Options(headers: headHeaders));
+      if (headResponse.statusCode != 200) {
+        return ApiResponse.error('Failed to get file size', statusCode: headResponse.statusCode);
+      }
+
+      final contentLength = headResponse.headers['content-length'];
+      if (contentLength == null || contentLength.isEmpty) {
+        return ApiResponse.error('Content-Length header not found');
+      }
+      final totalBytes = int.parse(contentLength.first);
+      log('[AliyunOSS] 文件总大小: $totalBytes bytes');
+
+      // 2. 计算分块范围
+      final chunks = <Map<String, dynamic>>[];
+      final totalChunks = (totalBytes / chunkSize).ceil();
+      for (int i = 0; i < totalChunks; i++) {
+        final start = i * chunkSize;
+        final end = min<int>(start + chunkSize - 1, totalBytes - 1);
+        chunks.add({
+          'partNumber': i + 1,
+          'start': start,
+          'end': end,
+          'size': end - start + 1,
+          'data': null,
+        });
+      }
+      log('[AliyunOSS] 分块数: ${chunks.length}');
+
+      // 3. 并发下载分块
+      int downloadedBytes = 0;
+      final failedChunks = <Map<String, dynamic>>[];
+
+      for (int i = 0; i < chunks.length; i += concurrency) {
+        final batch = chunks.sublist(i, min<int>(i + concurrency, chunks.length));
+
+        // 并发下载这一批分块
+        final results = await Future.wait(
+          batch.map((chunk) async {
+            try {
+              final rangeHeaders = _buildHeaders(
+                method: 'GET',
+                bucketName: bucketName,
+                objectKey: objectKey,
+                extraHeaders: {
+                  'Range': 'bytes=${chunk['start']}-${chunk['end']}',
+                },
+              );
+
+              final response = await _dio.get(
+                url,
+                options: Options(headers: rangeHeaders, responseType: ResponseType.bytes),
+              );
+
+              if (response.statusCode == 206) {
+                chunk['data'] = Uint8List.fromList(response.data as List<int>);
+                downloadedBytes += (chunk['size'] as int);
+                onProgress?.call(downloadedBytes, totalBytes);
+                return true;
+              }
+              return false;
+            } catch (e) {
+              logError('[AliyunOSS] 分块下载失败: $e');
+              return false;
+            }
+          }),
+        );
+
+        // 记录失败的分块
+        for (int j = 0; j < results.length; j++) {
+          if (!results[j]) {
+            failedChunks.add(batch[j]);
+          }
+        }
+      }
+
+      // 重试失败的分块
+      if (failedChunks.isNotEmpty) {
+        log('[AliyunOSS] 重试 ${failedChunks.length} 个失败分块...');
+        for (final chunk in failedChunks) {
+          try {
+            final rangeHeaders = _buildHeaders(
+              method: 'GET',
+              bucketName: bucketName,
+              objectKey: objectKey,
+              extraHeaders: {
+                'Range': 'bytes=${chunk['start']}-${chunk['end']}',
+              },
+            );
+
+            final response = await _dio.get(
+              url,
+              options: Options(headers: rangeHeaders, responseType: ResponseType.bytes),
+            );
+
+            if (response.statusCode == 206) {
+              chunk['data'] = Uint8List.fromList(response.data as List<int>);
+            } else {
+              return ApiResponse.error('Failed to download chunk');
+            }
+          } catch (e) {
+            return ApiResponse.error('Failed to retry chunk: $e');
+          }
+        }
+      }
+
+      // 4. 合并分块到文件
+      log('[AliyunOSS] 开始合并分块...');
+      final raf = await outputFile.open(mode: FileMode.writeOnly);
+      try {
+        for (final chunk in chunks) {
+          if (chunk['data'] != null) {
+            await raf.writeFrom(chunk['data'] as Uint8List);
+            chunk['data'] = null; // 释放内存
+          }
+        }
+      } finally {
+        await raf.close();
+      }
+
+      log('[AliyunOSS] 分块下载成功');
+      return ApiResponse.success(null);
+    } on DioException catch (e) {
+      final errorDetail = _parseAliyunError(e);
+      logError('[AliyunOSS] DioException: $errorDetail');
+      return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
+    } catch (e, stack) {
+      logError('[AliyunOSS] 分块下载异常: $e', stack);
       return ApiResponse.error(e.toString());
     }
   }

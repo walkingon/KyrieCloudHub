@@ -1617,13 +1617,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           bucketName: widget.bucket.name,
           region: widget.bucket.region,
           objectKey: obj.key,
+          outputFile: saveFile,
           onProgress: (r, t) {},
         );
 
-        if (result.success && result.data != null) {
-          await saveFile.writeAsBytes(result.data!);
-          downloadedCount++;
-          logUi('Downloaded: ${obj.name} -> $savePath');
+        if (result.success) {
         } else {
           failedCount++;
           logError('Failed to download: ${obj.name}');
@@ -1763,44 +1761,66 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       },
     );
 
+    // 保存文件路径
+    final savePath = '$directoryPath/${obj.name}';
+    final saveFile = File(savePath);
+    saveFile.parent.createSync(recursive: true);
+
+    // 根据文件大小选择下载方式
+    final fileSize = obj.size;
+    const largeFileThreshold = 100 * 1024 * 1024; // 100MB
+    final isLargeFile = fileSize > largeFileThreshold;
+
+    logUi('Starting download: ${obj.key}, size: $fileSize bytes, mode: ${isLargeFile ? 'multipart' : 'normal'}');
+
     // 执行下载
-    logUi('Starting download: ${obj.key}');
-    final downloadResult = await api.downloadObject(
-      bucketName: widget.bucket.name,
-      region: widget.bucket.region,
-      objectKey: obj.key,
-      onProgress: (r, t) {
-        dialogSetState?.call(() {
-          received = r;
-          total = t > 0 ? t : 1;
-          progress = total > 0 ? r / total : 0.0;
-        });
-      },
-    );
+    ApiResponse<void> downloadResult;
+    if (isLargeFile) {
+      // 大文件使用分块下载
+      downloadResult = await api.downloadObjectMultipart(
+        bucketName: widget.bucket.name,
+        region: widget.bucket.region,
+        objectKey: obj.key,
+        outputFile: saveFile,
+        chunkSize: 64 * 1024 * 1024, // 64MB 分块
+        concurrency: 4, // 并发数
+        onProgress: (r, t) {
+          dialogSetState?.call(() {
+            received = r;
+            total = t > 0 ? t : 1;
+            progress = total > 0 ? r / total : 0.0;
+          });
+        },
+      );
+    } else {
+      // 小文件使用普通下载
+      downloadResult = await api.downloadObject(
+        bucketName: widget.bucket.name,
+        region: widget.bucket.region,
+        objectKey: obj.key,
+        outputFile: saveFile,
+        onProgress: (r, t) {
+          dialogSetState?.call(() {
+            received = r;
+            total = t > 0 ? t : 1;
+            progress = total > 0 ? r / total : 0.0;
+          });
+        },
+      );
+    }
 
     // 关闭进度对话框
     if (!mounted) return;
     Navigator.of(context).pop();
 
-    if (downloadResult.success && downloadResult.data != null) {
-      logUi('Download completed, saving file');
-
-      // 保存文件到用户选择的位置
-      final savePath = '$directoryPath/${obj.name}';
-      try {
-        final file = File(savePath);
-        await file.writeAsBytes(downloadResult.data!);
-        logUi('File saved to: $savePath');
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('下载成功: ${obj.name}\n保存到: $savePath'),
-            ),
-          );
-        }
-      } catch (e) {
-        logError('Failed to save file: $e');
-        _showErrorSnackBar('下载失败：保存文件失败');
+    if (downloadResult.success) {
+      logUi('Download completed, file saved to: $savePath');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('下载成功: ${obj.name}\n保存到: $savePath'),
+          ),
+        );
       }
     } else {
       logError('Download failed: ${downloadResult.errorMessage}');
@@ -2137,24 +2157,43 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       }
 
       logUi('Downloading: ${obj.name}');
-      final result = await api.downloadObject(
-        bucketName: widget.bucket.name,
-        region: widget.bucket.region,
-        objectKey: obj.key,
-        onProgress: (r, t) {},
-      );
+      final savePath = '$directoryPath/${obj.name}';
+      final saveFile = File(savePath);
+      saveFile.parent.createSync(recursive: true);
 
-      if (result.success && result.data != null) {
-        try {
-          final savePath = '$directoryPath/${obj.name}';
-          final file = File(savePath);
-          await file.writeAsBytes(result.data!);
-          successCount++;
-          logUi('Downloaded: ${obj.name} -> $savePath');
-        } catch (e) {
-          failCount++;
-          logError('Failed to save file: ${obj.name}, $e');
-        }
+      // 根据文件大小选择下载方式
+      final fileSize = obj.size;
+      const largeFileThreshold = 100 * 1024 * 1024; // 100MB
+      final isLargeFile = fileSize > largeFileThreshold;
+
+      logUi('Batch downloading: ${obj.key}, size: $fileSize bytes, mode: ${isLargeFile ? 'multipart' : 'normal'}');
+
+      ApiResponse<void> result;
+      if (isLargeFile) {
+        // 大文件使用分块下载
+        result = await api.downloadObjectMultipart(
+          bucketName: widget.bucket.name,
+          region: widget.bucket.region,
+          objectKey: obj.key,
+          outputFile: saveFile,
+          chunkSize: 64 * 1024 * 1024, // 64MB 分块
+          concurrency: 4, // 并发数
+          onProgress: (r, t) {},
+        );
+      } else {
+        // 小文件使用普通下载
+        result = await api.downloadObject(
+          bucketName: widget.bucket.name,
+          region: widget.bucket.region,
+          objectKey: obj.key,
+          outputFile: saveFile,
+          onProgress: (r, t) {},
+        );
+      }
+
+      if (result.success) {
+        successCount++;
+        logUi('Downloaded: ${obj.name} -> $savePath');
       } else {
         failCount++;
         logError('Download failed: ${obj.name}, ${result.errorMessage}');

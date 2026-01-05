@@ -227,17 +227,24 @@ class WebdavProtocolHandler {
     }
 
     try {
+      // 创建临时文件用于下载
+      final tempDir = await Directory.systemTemp.createTemp('webdav_download_');
+      final tempFile = File('${tempDir.path}/${Uri.encodeComponent(relativePath)}');
+      tempFile.parent.createSync(recursive: true);
+
       final result = await api.downloadObject(
         bucketName: config.bucketName,
         region: config.region,
         objectKey: relativePath,
+        outputFile: tempFile,
       );
 
       if (!result.success) {
         return WebdavResponse.notFound(bodyBytes: utf8.encode(result.errorMessage ?? 'File not found'));
       }
 
-      final data = result.data ?? [];
+      // 读取文件内容并返回
+      final data = await tempFile.readAsBytes();
       return WebdavResponse.ok(
         bodyBytes: data,
         headers: {

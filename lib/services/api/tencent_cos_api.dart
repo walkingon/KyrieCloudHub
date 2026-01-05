@@ -9,6 +9,7 @@ import '../../models/platform_credential.dart';
 import '../../utils/logger.dart';
 import 'cloud_platform_api.dart';
 import '../multipart_upload/multipart_upload_manager.dart';
+import '../multipart_download/multipart_download_manager.dart';
 import 'tencent/tencent_signature_generator.dart';
 
 class TencentCosApi implements ICloudPlatformApi {
@@ -443,10 +444,11 @@ class TencentCosApi implements ICloudPlatformApi {
   }
 
   @override
-  Future<ApiResponse<List<int>>> downloadObject({
+  Future<ApiResponse<void>> downloadObject({
     required String bucketName,
     required String region,
     required String objectKey,
+    required File outputFile,
     void Function(int received, int total)? onProgress,
   }) async {
     try {
@@ -474,13 +476,19 @@ class TencentCosApi implements ICloudPlatformApi {
         'Date': date,
       };
 
+      // 使用流式响应，逐步写入文件
       final response = await _dio.get(
         url,
-        options: Options(headers: headers, responseType: ResponseType.bytes),
+        options: Options(headers: headers, responseType: ResponseType.stream),
         onReceiveProgress: onProgress,
       );
+
       if (response.statusCode == 200) {
-        return ApiResponse.success(response.data);
+        // 从 ResponseBody 流式写入文件
+        final responseBody = response.data as ResponseBody;
+        final fileSink = outputFile.openWrite();
+        await responseBody.stream.cast<List<int>>().pipe(fileSink);
+        return ApiResponse.success(null);
       } else {
         return ApiResponse.error(
           'Failed to download object',
@@ -491,6 +499,65 @@ class TencentCosApi implements ICloudPlatformApi {
       final errorDetail = _parseTencentCloudError(e);
       return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
     } catch (e) {
+      return ApiResponse.error(e.toString());
+    }
+  }
+
+  @override
+  Future<ApiResponse<void>> downloadObjectMultipart({
+    required String bucketName,
+    required String region,
+    required String objectKey,
+    required File outputFile,
+    int chunkSize = kDefaultChunkSize,
+    int concurrency = kDefaultConcurrency,
+    void Function(int received, int total)? onProgress,
+  }) async {
+    try {
+      log('[TencentCOS] 开始分块下载: $objectKey -> ${outputFile.path}');
+
+      final manager = MultipartDownloadManager(
+        credential: credential,
+        dio: _dio,
+        bucketName: bucketName,
+        region: region,
+        objectKey: objectKey,
+        chunkSize: chunkSize,
+        concurrency: concurrency,
+      );
+
+      // 设置签名回调
+      manager.getSignature = (method, path, {queryParams}) async {
+        final date = HttpDate.format(DateTime.now().toUtc());
+        final headersForSign = {
+          'host': '$bucketName.cos.$region.myqcloud.com'.toLowerCase(),
+          'date': date,
+        };
+        return _getSignature(
+          method,
+          path,
+          headersForSign,
+          queryParams: queryParams,
+        );
+      };
+
+      // 下载文件
+      final success = await manager.downloadFile(
+        outputFile,
+        onProgress: (bytesDownloaded, totalBytes) {
+          onProgress?.call(bytesDownloaded, totalBytes);
+        },
+      );
+
+      if (success) {
+        log('[TencentCOS] 分块下载成功');
+        return ApiResponse.success(null);
+      } else {
+        logError('[TencentCOS] 分块下载失败: ${manager.errorMessage}');
+        return ApiResponse.error(manager.errorMessage ?? '分块下载失败');
+      }
+    } catch (e, stack) {
+      logError('[TencentCOS] 分块下载异常: $e', stack);
       return ApiResponse.error(e.toString());
     }
   }
