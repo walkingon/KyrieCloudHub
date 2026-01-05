@@ -6,9 +6,9 @@ import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
-import '../../models/platform_credential.dart';
-import '../../utils/logger.dart';
-import '../api/cloud_platform_api.dart';
+import '../../../models/platform_credential.dart';
+import '../../../utils/logger.dart';
+import '../../api/cloud_platform_api.dart';
 
 /// 分块下载状态
 enum MultipartDownloadStatus {
@@ -35,14 +35,14 @@ class DownloadChunk {
   }) : size = end - start + 1;
 }
 
-/// 分块下载管理器
+/// 腾讯云分块下载管理器
 ///
 /// 负责管理大文件分块串行下载：
 /// 1. 获取文件大小 (HEAD请求)
 /// 2. 计算分块范围
 /// 3. 串行下载各分块 (HTTP Range)
 /// 4. 合并分块到文件
-class MultipartDownloadManager {
+class TencentMultipartDownloadManager {
   final PlatformCredential credential;
   final Dio dio;
   final String bucketName;
@@ -79,7 +79,7 @@ class MultipartDownloadManager {
   int _lastProgressUpdateMs = 0;
   static const _progressThrottleMs = 200; // 进度更新间隔200ms
 
-  MultipartDownloadManager({
+  TencentMultipartDownloadManager({
     required this.credential,
     required this.dio,
     required this.bucketName,
