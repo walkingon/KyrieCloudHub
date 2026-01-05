@@ -1,12 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/bucket.dart';
 import '../models/platform_type.dart';
 import '../services/cloud_platform_factory.dart';
 import '../services/storage_service.dart';
-import '../services/webdav/webdav_server.dart';
-import '../services/webdav/webdav_service.dart';
 import '../utils/logger.dart';
 import 'platform_selection_screen.dart';
 import 'transfer_queue_screen.dart';
@@ -265,7 +262,6 @@ class _MainScreenState extends State<MainScreen> {
           leading: Icon(Icons.storage),
           title: Text(bucket.name),
           subtitle: Text(bucket.region),
-          trailing: _buildWebdavIndicator(bucket),
           onTap: () {
             logUi('User tapped bucket: ${bucket.name}');
             Navigator.push(
@@ -280,7 +276,6 @@ class _MainScreenState extends State<MainScreen> {
           },
           onLongPress: () {
             logUi('User long pressed bucket: ${bucket.name}');
-            _showBucketOptionsMenu(bucket);
           },
         );
       },
@@ -315,52 +310,42 @@ class _MainScreenState extends State<MainScreen> {
           },
           onLongPress: () {
             logUi('User long pressed bucket: ${bucket.name}');
-            _showBucketOptionsMenu(bucket);
           },
-          child: Stack(
-            children: [
-              Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(8),
-                  color: Colors.white,
+          child: Container(
+            decoration: BoxDecoration(
+              border: Border.all(color: Colors.grey.shade300),
+              borderRadius: BorderRadius.circular(8),
+              color: Colors.white,
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.storage,
+                  size: 48,
+                  color: Colors.blue,
                 ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.storage,
-                      size: 48,
-                      color: Colors.blue,
+                SizedBox(height: 8),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: Text(
+                    bucket.name,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
                     ),
-                    SizedBox(height: 8),
-                    Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 8),
-                      child: Text(
-                        bucket.name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                    SizedBox(height: 4),
-                    Text(
-                      bucket.region,
-                      style: TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-              Positioned(
-                top: 4,
-                right: 4,
-                child: _buildWebdavIndicator(bucket),
-              ),
-            ],
+                SizedBox(height: 4),
+                Text(
+                  bucket.region,
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -375,166 +360,5 @@ class _MainScreenState extends State<MainScreen> {
     if (width > 600) return 4;
     if (width > 400) return 3;
     return 2;
-  }
-
-  /// 构建WebDAV状态指示器
-  Widget _buildWebdavIndicator(Bucket bucket) {
-    final webdavService = WebdavService();
-    final serverKey = '${_currentPlatform?.value}_${bucket.name}';
-    final isRunning = webdavService.isServerRunning(bucket.name, _currentPlatform!);
-    final port = webdavService.getServerPort(bucket.name, _currentPlatform!);
-
-    logUi('WebDAV indicator - bucket: ${bucket.name}, key: $serverKey, isRunning: $isRunning, port: $port, servers: ${webdavService.getRunningServersInfo()}');
-
-    if (isRunning) {
-      return Icon(
-        Icons.cloud_done,
-        color: Colors.green,
-        size: 20,
-      );
-    }
-    return SizedBox.shrink();
-  }
-
-  /// 显示存储桶操作菜单
-  void _showBucketOptionsMenu(Bucket bucket) {
-    if (_currentPlatform == null) return;
-    final webdavService = WebdavService();
-    final isRunning = webdavService.isServerRunning(bucket.name, _currentPlatform!);
-    final currentPort = webdavService.getServerPort(bucket.name, _currentPlatform!);
-
-    showModalBottomSheet(
-      context: context,
-      builder: (context) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ListTile(
-            leading: Icon(isRunning ? Icons.stop : Icons.play_arrow),
-            title: Text(isRunning ? '关闭WebDAV服务' : '开启WebDAV服务'),
-            subtitle: isRunning ? Text('端口: $currentPort') : null,
-            onTap: () {
-              Navigator.pop(context);
-              _toggleWebdavService(bucket, isRunning);
-            },
-          ),
-          if (isRunning) ...[
-            ListTile(
-              leading: Icon(Icons.content_copy),
-              title: Text('复制WebDAV地址'),
-              subtitle: Text('http://localhost:$currentPort'),
-              onTap: () {
-                Navigator.pop(context);
-                _copyWebdavUrl(bucket, currentPort ?? 8080);
-              },
-            ),
-          ],
-          SizedBox(height: 16),
-        ],
-      ),
-    );
-  }
-
-  /// 切换WebDAV服务状态
-  Future<void> _toggleWebdavService(Bucket bucket, bool currentlyRunning) async {
-    if (_currentPlatform == null) return;
-
-    final storage = Provider.of<StorageService>(context, listen: false);
-    final credential = await storage.getCredential(_currentPlatform!);
-
-    if (credential == null) {
-      _showErrorDialog('无法获取凭证，请重新登录');
-      return;
-    }
-
-    final webdavService = WebdavService();
-
-    if (currentlyRunning) {
-      await webdavService.stopServerByBucket(bucket.name, _currentPlatform!);
-      logUi('WebDAV: Stopped server for bucket: ${bucket.name}');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('WebDAV服务已关闭')),
-        );
-      }
-    } else {
-      // 查找可用端口
-      int port = 8080;
-      while (webdavService.getServerPort(bucket.name, _currentPlatform!) == null &&
-          port < 8200) {
-        try {
-          final testServer = WebdavServer(
-            config: WebdavServerConfig(
-              bucketName: bucket.name,
-              region: bucket.region,
-              port: port,
-              platform: _currentPlatform!,
-              credential: credential,
-              factory: CloudPlatformFactory(),
-            ),
-          );
-          await testServer.start();
-          await testServer.stop();
-          break;
-        } catch (e) {
-          port++;
-        }
-      }
-      logUi('WebDAV: Found available port: $port');
-
-      final success = await webdavService.startServer(
-        bucket: bucket,
-        platform: _currentPlatform!,
-        credential: credential,
-        port: port,
-      );
-
-      logUi('WebDAV: startServer result: $success, isRunning: ${webdavService.isServerRunning(bucket.name, _currentPlatform!)}');
-
-      if (mounted) {
-        if (success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('WebDAV服务已启动\n访问地址: http://localhost:$port')),
-          );
-        } else {
-          _showErrorDialog('启动WebDAV服务失败');
-        }
-      }
-    }
-
-    // 强制刷新界面
-    if (mounted) {
-      setState(() {});
-    }
-  }
-
-  /// 复制WebDAV URL
-  void _copyWebdavUrl(Bucket bucket, int port) async {
-    final url = 'http://localhost:$port';
-    await Clipboard.setData(ClipboardData(text: url));
-    _showMessage('地址已复制: $url');
-  }
-
-  /// 显示错误对话框
-  void _showErrorDialog(String message) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text('错误'),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text('确定'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 显示消息提示
-  void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
   }
 }

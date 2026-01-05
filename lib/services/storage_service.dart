@@ -6,7 +6,6 @@ import '../models/platform_credential.dart';
 class StorageService {
   static const String _keyLastPlatform = 'last_platform';
   static const String _keyCredentialPrefix = 'credential_';
-  static const String _keyWebdavConfigPrefix = 'webdav_config_';
 
   Future<void> saveLastPlatform(PlatformType platformType) async {
     final prefs = await SharedPreferences.getInstance();
@@ -91,35 +90,5 @@ class StorageService {
         .where((key) => key.startsWith('transfer_task_'))
         .map((key) => key.replaceFirst('transfer_task_', ''))
         .toList();
-  }
-
-  /// 保存WebDAV配置
-  Future<void> saveWebdavConfig(String bucketName, bool enabled, int port) async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = _keyWebdavConfigPrefix + bucketName;
-    await prefs.setString(key, jsonEncode({
-      'enabled': enabled,
-      'port': port,
-    }));
-  }
-
-  /// 获取WebDAV配置
-  Future<Map<String, dynamic>?> getWebdavConfig(String bucketName) async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = _keyWebdavConfigPrefix + bucketName;
-    final jsonString = prefs.getString(key);
-    if (jsonString == null) return null;
-    try {
-      return jsonDecode(jsonString);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  /// 清除WebDAV配置
-  Future<void> clearWebdavConfig(String bucketName) async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = _keyWebdavConfigPrefix + bucketName;
-    await prefs.remove(key);
   }
 }
