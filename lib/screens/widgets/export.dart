@@ -1,4 +1,4 @@
-/// BucketObjectsScreen 组件导出
+// BucketObjectsScreen 组件导出
 export 'path_navigation.dart';
 export 'status_widgets.dart';
 export 'pagination_controls.dart';

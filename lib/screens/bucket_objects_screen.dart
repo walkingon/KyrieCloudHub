@@ -1391,6 +1391,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   Future<void> _batchDownload() async {
     final selectedFiles = _selectedFileList;
     if (selectedFiles.isEmpty) return;
+    if (!mounted) return;
 
     final credential = await _storage.getCredential(widget.platform);
     if (credential == null) {
@@ -1404,6 +1405,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       return;
     }
 
+    if (!mounted) return;
     await BatchOperations.batchDownload(
       context: context,
       selectedFiles: selectedFiles,
@@ -1441,6 +1443,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       return;
     }
 
+    if (!mounted) return;
     await BatchOperations.batchDelete(
       context: context,
       selectedFiles: selectedFiles,
