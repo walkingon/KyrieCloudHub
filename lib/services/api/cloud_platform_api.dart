@@ -6,6 +6,9 @@ import '../../models/object_file.dart';
 /// 默认分块大小 (64MB)
 const int kDefaultChunkSize = 64 * 1024 * 1024;
 
+/// 并行传输配置
+const int kDefaultParallelConcurrency = 4;  // 默认并行传输并发数
+
 class ApiResponse<T> {
   final bool success;
   final T? data;

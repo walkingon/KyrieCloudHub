@@ -75,9 +75,11 @@ class TencentMultipartDownloadManager {
   Future<String> Function(String method, String path, {Map<String, String>? queryParams})?
       getSignature;
 
-  /// 进度节流：上次更新UI的时间戳
-  int _lastProgressUpdateMs = 0;
-  static const _progressThrottleMs = 200; // 进度更新间隔200ms
+  /// 进度更新间隔（毫秒）- 使用更长的间隔减少消息数量
+  static const _progressThrottleMs = 500;
+
+  /// 进度更新计时器（确保最多只有一个进度回调待执行）
+  Timer? _progressTimer;
 
   TencentMultipartDownloadManager({
     required this.credential,
@@ -191,14 +193,9 @@ class TencentMultipartDownloadManager {
           }
           return Uint8List.fromList(allBytes);
         });
-        _downloadedBytes += chunk.data!.length;
 
-        // 进度节流：每200ms更新一次UI
-        final nowMs = DateTime.now().millisecondsSinceEpoch;
-        if (nowMs - _lastProgressUpdateMs >= _progressThrottleMs) {
-          _lastProgressUpdateMs = nowMs;
-          onProgress?.call(_downloadedBytes, _totalBytes);
-        }
+        // 线程安全地更新进度
+        _updateProgress(chunk.data!.length);
 
         logger.info('分块 ${chunk.partNumber} 下载成功: ${chunk.data!.length} bytes');
         return true;
@@ -210,6 +207,28 @@ class TencentMultipartDownloadManager {
       logger.error('分块 ${chunk.partNumber} 下载异常: $e', stack);
       return false;
     }
+  }
+
+  /// 线程安全的进度更新（带节流）
+  void _updateProgress(int bytesJustDownloaded) {
+    _downloadedBytes += bytesJustDownloaded;
+
+    // 使用 scheduleMicrotask 确保进度回调按顺序执行
+    _scheduleProgressUpdate();
+  }
+
+  /// 安排进度更新（使用 Timer 确保节流）
+  void _scheduleProgressUpdate() {
+    // 如果已有计时器在等待，不重复创建
+    if (_progressTimer != null) return;
+
+    _progressTimer = Timer(const Duration(milliseconds: _progressThrottleMs), () {
+      _progressTimer = null;
+      final bytes = _downloadedBytes;
+      final total = _totalBytes;
+      // 在 UI 线程调用回调
+      onProgress?.call(bytes, total);
+    });
   }
 
   /// 合并分块到文件
@@ -242,17 +261,19 @@ class TencentMultipartDownloadManager {
     }
   }
 
-  /// 下载文件
+  /// 下载文件（支持并行下载）
   Future<bool> downloadFile(
     File outputFile, {
     void Function(int bytesDownloaded, int totalBytes)? onProgress,
     void Function(MultipartDownloadStatus status)? onStatusChanged,
+    int concurrency = kDefaultParallelConcurrency,
   }) async {
     // 设置回调
     if (onProgress != null) this.onProgress = onProgress;
     if (onStatusChanged != null) this.onStatusChanged = onStatusChanged;
     // 重置进度节流计时器
-    _lastProgressUpdateMs = 0;
+    _progressTimer?.cancel();
+    _progressTimer = null;
 
     try {
       _setStatus(MultipartDownloadStatus.initiating);
@@ -268,17 +289,43 @@ class TencentMultipartDownloadManager {
       // 2. 计算分块
       _calculateChunks();
 
-      // 3. 串行下载分块
+      // 3. 并行下载分块
       _setStatus(MultipartDownloadStatus.downloading);
+      logger.info('开始并行下载 ${_chunks.length} 个分块，并发数: $concurrency');
 
-      // 顺序下载每个分块，一个完成后再开始下一个
-      for (final chunk in _chunks) {
-        final success = await _downloadChunk(chunk);
-        if (!success) {
-          errorMessage = '分块 ${chunk.partNumber} 下载失败';
-          _setStatus(MultipartDownloadStatus.failed);
-          return false;
+      int nextIndex = 0;
+      final pendingTasks = <Future<bool>>[];
+      bool hasError = false;
+
+      while (nextIndex < _chunks.length || pendingTasks.isNotEmpty) {
+        // 填充任务队列直到达到并发上限
+        while (nextIndex < _chunks.length && pendingTasks.length < concurrency) {
+          final chunk = _chunks[nextIndex];
+          final task = _downloadChunk(chunk).then((success) {
+            return success;
+          });
+          pendingTasks.add(task);
+          nextIndex++;
         }
+
+        // 等待当前批次任务完成
+        if (pendingTasks.isNotEmpty) {
+          final results = await Future.wait(pendingTasks);
+          pendingTasks.clear();
+
+          // 如果有任何一个失败的，中止下载
+          if (results.any((r) => !r)) {
+            hasError = true;
+            break;
+          }
+        }
+      }
+
+      if (hasError || _chunks.any((c) => c.data == null)) {
+        errorMessage = '部分分块下载失败';
+        logger.error(errorMessage!);
+        _setStatus(MultipartDownloadStatus.failed);
+        return false;
       }
 
       // 4. 合并分块

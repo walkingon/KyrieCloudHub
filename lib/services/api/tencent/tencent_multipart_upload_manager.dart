@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -7,6 +8,7 @@ import 'package:dio/dio.dart';
 import 'package:xml/xml.dart';
 
 import '../../../models/platform_credential.dart';
+import '../../../services/api/cloud_platform_api.dart';
 import '../../../utils/logger.dart';
 import '../../../utils/file_chunk_reader.dart';
 
@@ -98,6 +100,12 @@ class TencentMultipartUploadManager {
   /// 签名方法回调（带额外头部，用于需要额外头部的请求如 uploadPart）
   Future<String> Function(String method, String path, Map<String, String> extraHeaders,
       {Map<String, String>? queryParams})? getSignatureWithHeaders;
+
+  /// 进度更新间隔（毫秒）- 使用更长的间隔减少消息数量
+  static const _progressThrottleMs = 500;
+
+  /// 进度更新计时器（确保最多只有一个进度回调待执行）
+  Timer? _progressTimer;
 
   TencentMultipartUploadManager({
     required this.credential,
@@ -251,8 +259,8 @@ class TencentMultipartUploadManager {
           );
         }
 
-        uploadedBytes += data.length;
-        onProgress?.call(uploadedBytes, totalBytes);
+        // 线程安全地更新进度
+        _updateProgress(data.length);
 
         log('[TencentMultipartUploadManager] 分块 $partNumber 上传成功, ETag: $eTag');
         return true;
@@ -264,6 +272,28 @@ class TencentMultipartUploadManager {
       logError('[TencentMultipartUploadManager] 分块 $partNumber 上传异常: $e', stack);
       return false;
     }
+  }
+
+  /// 线程安全的进度更新（带节流）
+  void _updateProgress(int bytesJustUploaded) {
+    uploadedBytes += bytesJustUploaded;
+
+    // 使用 scheduleMicrotask 确保进度回调按顺序执行
+    _scheduleProgressUpdate();
+  }
+
+  /// 安排进度更新（使用 Timer 确保节流）
+  void _scheduleProgressUpdate() {
+    // 如果已有计时器在等待，不重复创建
+    if (_progressTimer != null) return;
+
+    _progressTimer = Timer(const Duration(milliseconds: _progressThrottleMs), () {
+      _progressTimer = null;
+      final bytes = uploadedBytes;
+      final total = totalBytes;
+      // 在 UI 线程调用回调
+      onProgress?.call(bytes, total);
+    });
   }
 
   /// 完成分块上传
@@ -378,11 +408,12 @@ class TencentMultipartUploadManager {
     }
   }
 
-  /// 上传整个文件（封装好的完整流程）
+  /// 上传整个文件（封装好的完整流程，支持并行上传）
   Future<bool> uploadFile(
     File file, {
     void Function(int bytesUploaded, int totalBytes)? onProgress,
     void Function(MultipartUploadStatus status)? onStatusChanged,
+    int concurrency = kDefaultParallelConcurrency,
   }) async {
     // 设置回调
     if (onProgress != null) {
@@ -391,6 +422,10 @@ class TencentMultipartUploadManager {
     if (onStatusChanged != null) {
       this.onStatusChanged = onStatusChanged;
     }
+
+    // 重置进度节流计时器
+    _progressTimer?.cancel();
+    _progressTimer = null;
 
     // 获取文件大小
     totalBytes = await file.length();
@@ -405,29 +440,57 @@ class TencentMultipartUploadManager {
     _setStatus(MultipartUploadStatus.uploading);
     final reader = FileChunkReader(chunkSize: chunkSize);
 
-    int successCount = 0;
     final totalChunks = FileChunkReader.calculateChunkCount(totalBytes, chunkSize: chunkSize);
-    log('[TencentMultipartUploadManager] 开始上传 $totalChunks 个分块');
+    log('[TencentMultipartUploadManager] 开始并行上传 $totalChunks 个分块，并发数: $concurrency');
 
-    // 使用 Stream 方式读取分块
+    // 收集所有分块数据
+    final chunks = <FileChunk>[];
     await for (final chunk in reader.chunkStream(file)) {
-      final success = await uploadPart(chunk.partNumber, chunk.data);
-      if (success) {
-        successCount++;
-      } else {
-        logError('[TencentMultipartUploadManager] 分块 ${chunk.partNumber} 上传失败');
-        // 可以选择继续上传其他分块或中断
+      chunks.add(chunk);
+    }
+
+    // 并行上传分块
+    int successCount = 0;
+    int nextIndex = 0;
+    final pendingTasks = <Future<bool>>[];
+    bool hasError = false;
+
+    // 启动上传任务
+    while (nextIndex < chunks.length || pendingTasks.isNotEmpty) {
+      // 填充任务队列直到达到并发上限
+      while (nextIndex < chunks.length && pendingTasks.length < concurrency) {
+        final chunk = chunks[nextIndex];
+        final task = uploadPart(chunk.partNumber, chunk.data).then((success) {
+          if (success) {
+            successCount++;
+          }
+          return success;
+        });
+        pendingTasks.add(task);
+        nextIndex++;
+      }
+
+      // 等待任意一个任务完成
+      if (pendingTasks.isNotEmpty) {
+        final results = await Future.wait(pendingTasks);
+        pendingTasks.clear();
+
+        // 如果有任何一个失败的，中止上传
+        if (results.any((r) => !r)) {
+          hasError = true;
+          break;
+        }
       }
     }
 
-    log('[TencentMultipartUploadManager] 分块上传完成, 成功: $successCount/$totalChunks');
-
-    if (uploadedParts.length != totalChunks) {
+    if (hasError || successCount != totalChunks) {
       errorMessage = '部分分块上传失败: $successCount/$totalChunks';
       logError('[TencentMultipartUploadManager] $errorMessage');
       await abort();
       return false;
     }
+
+    log('[TencentMultipartUploadManager] 分块上传完成, 成功: $successCount/$totalChunks');
 
     // 完成上传
     return await complete();
