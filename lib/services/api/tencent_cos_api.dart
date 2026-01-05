@@ -8,7 +8,7 @@ import '../../models/object_file.dart';
 import '../../models/platform_credential.dart';
 import '../../utils/logger.dart';
 import 'cloud_platform_api.dart';
-import '../multipart_upload/multipart_upload_manager.dart';
+import 'tencent/tencent_multipart_upload_manager.dart';
 import 'tencent/tencent_multipart_download_manager.dart';
 import 'tencent/tencent_signature_generator.dart';
 
@@ -1114,7 +1114,7 @@ class TencentCosApi implements ICloudPlatformApi {
     try {
       log('[TencentCOS] 开始分块上传: ${file.path} -> $objectKey');
 
-      final manager = MultipartUploadManager(
+      final manager = TencentMultipartUploadManager(
         credential: credential,
         dio: _dio,
         bucketName: bucketName,

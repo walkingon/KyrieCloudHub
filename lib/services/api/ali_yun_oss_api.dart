@@ -10,7 +10,7 @@ import '../../models/object_file.dart';
 import '../../models/platform_credential.dart';
 import '../../utils/logger.dart';
 import 'cloud_platform_api.dart';
-import '../multipart_upload/file_chunk_reader.dart';
+import '../../utils/file_chunk_reader.dart';
 import 'aliyun/aliyun_signature_generator.dart';
 
 /// 阿里云OSS API实现

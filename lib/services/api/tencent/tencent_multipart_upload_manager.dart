@@ -6,9 +6,9 @@ import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:xml/xml.dart';
 
-import '../../models/platform_credential.dart';
-import '../../utils/logger.dart';
-import 'file_chunk_reader.dart';
+import '../../../models/platform_credential.dart';
+import '../../../utils/logger.dart';
+import '../../../utils/file_chunk_reader.dart';
 
 /// 已上传分块信息
 class UploadedPart {
@@ -35,10 +35,10 @@ class UploadedPart {
   }
 
   Map<String, dynamic> toJson() => {
-    'partNumber': partNumber,
-    'eTag': eTag,
-    'size': size,
-  };
+        'partNumber': partNumber,
+        'eTag': eTag,
+        'size': size,
+      };
 }
 
 /// 分块上传状态
@@ -52,16 +52,16 @@ enum MultipartUploadStatus {
   cancelled,
 }
 
-/// 分块上传管理器
+/// 腾讯云分片上传管理器
 ///
 /// 负责管理整个分块上传流程：
 /// 1. 初始化分块上传 (Initiate Multipart Upload)
 /// 2. 上传分块 (Upload Part)
 /// 3. 完成分块上传 (Complete Multipart Upload)
 /// 4. 取消分块上传 (Abort Multipart Upload)
-class MultipartUploadManager {
+class TencentMultipartUploadManager {
   final PlatformCredential credential;
-  final Dio dio;  // 改为直接使用 Dio
+  final Dio dio; // 改为直接使用 Dio
   final String bucketName;
   final String region;
   final String objectKey;
@@ -99,7 +99,7 @@ class MultipartUploadManager {
   Future<String> Function(String method, String path, Map<String, String> extraHeaders,
       {Map<String, String>? queryParams})? getSignatureWithHeaders;
 
-  MultipartUploadManager({
+  TencentMultipartUploadManager({
     required this.credential,
     required this.dio,
     required this.bucketName,
@@ -115,7 +115,7 @@ class MultipartUploadManager {
   void _setStatus(MultipartUploadStatus newStatus) {
     if (status != newStatus) {
       status = newStatus;
-      log('[MultipartUploadManager] 状态变更: $newStatus');
+      log('[TencentMultipartUploadManager] 状态变更: $newStatus');
       onStatusChanged?.call(newStatus);
     }
   }
@@ -124,7 +124,7 @@ class MultipartUploadManager {
   Future<bool> initiate() async {
     try {
       _setStatus(MultipartUploadStatus.initiating);
-      log('[MultipartUploadManager] 开始初始化分块上传: $objectKey');
+      log('[TencentMultipartUploadManager] 开始初始化分块上传: $objectKey');
 
       if (getSignature == null) {
         throw Exception('签名方法未设置，请传入 getSignature 回调');
@@ -150,33 +150,33 @@ class MultipartUploadManager {
 
       if (response.statusCode == 200) {
         // 解析XML响应获取 UploadId
-        log('[MultipartUploadManager] response.data type: ${response.data.runtimeType}');
+        log('[TencentMultipartUploadManager] response.data type: ${response.data.runtimeType}');
 
         XmlDocument document;
         if (response.data is XmlDocument) {
           document = response.data as XmlDocument;
         } else {
           final responseData = response.data?.toString() ?? '';
-          log('[MultipartUploadManager] 初始化响应: $responseData');
+          log('[TencentMultipartUploadManager] 初始化响应: $responseData');
           document = XmlDocument.parse(responseData);
         }
 
         // 从根元素查找 UploadId 子元素
         final uploadIdElement = document.rootElement.findElements('UploadId').first;
         uploadId = uploadIdElement.innerText;
-        log('[MultipartUploadManager] 初始化成功, UploadId: $uploadId');
+        log('[TencentMultipartUploadManager] 初始化成功, UploadId: $uploadId');
         uploadedParts.clear();
         uploadedBytes = 0;
         return true;
       } else {
         errorMessage = '初始化分块上传失败: ${response.statusCode}';
-        logError('[MultipartUploadManager] $errorMessage');
+        logError('[TencentMultipartUploadManager] $errorMessage');
         _setStatus(MultipartUploadStatus.failed);
         return false;
       }
     } catch (e, stack) {
       errorMessage = '初始化分块上传异常: $e';
-      logError('[MultipartUploadManager] $errorMessage', stack);
+      logError('[TencentMultipartUploadManager] $errorMessage', stack);
       _setStatus(MultipartUploadStatus.failed);
       return false;
     }
@@ -186,7 +186,7 @@ class MultipartUploadManager {
   Future<bool> uploadPart(int partNumber, Uint8List data) async {
     if (uploadId == null) {
       errorMessage = 'UploadId 为空，请先调用 initiate()';
-      logError('[MultipartUploadManager] $errorMessage');
+      logError('[TencentMultipartUploadManager] $errorMessage');
       return false;
     }
 
@@ -254,14 +254,14 @@ class MultipartUploadManager {
         uploadedBytes += data.length;
         onProgress?.call(uploadedBytes, totalBytes);
 
-        log('[MultipartUploadManager] 分块 $partNumber 上传成功, ETag: $eTag');
+        log('[TencentMultipartUploadManager] 分块 $partNumber 上传成功, ETag: $eTag');
         return true;
       } else {
-        logError('[MultipartUploadManager] 分块 $partNumber 上传失败: ${response.statusCode}');
+        logError('[TencentMultipartUploadManager] 分块 $partNumber 上传失败: ${response.statusCode}');
         return false;
       }
     } catch (e, stack) {
-      logError('[MultipartUploadManager] 分块 $partNumber 上传异常: $e', stack);
+      logError('[TencentMultipartUploadManager] 分块 $partNumber 上传异常: $e', stack);
       return false;
     }
   }
@@ -270,13 +270,13 @@ class MultipartUploadManager {
   Future<bool> complete() async {
     if (uploadId == null) {
       errorMessage = 'UploadId 为空，请先调用 initiate()';
-      logError('[MultipartUploadManager] $errorMessage');
+      logError('[TencentMultipartUploadManager] $errorMessage');
       return false;
     }
 
     try {
       _setStatus(MultipartUploadStatus.completing);
-      log('[MultipartUploadManager] 开始完成分块上传, 共 ${uploadedParts.length} 个分块');
+      log('[TencentMultipartUploadManager] 开始完成分块上传, 共 ${uploadedParts.length} 个分块');
 
       // 构建请求体 XML
       final partsXml = StringBuffer();
@@ -318,18 +318,18 @@ class MultipartUploadManager {
       );
 
       if (response.statusCode == 200) {
-        log('[MultipartUploadManager] 分块上传完成成功');
+        log('[TencentMultipartUploadManager] 分块上传完成成功');
         _setStatus(MultipartUploadStatus.completed);
         return true;
       } else {
         errorMessage = '完成分块上传失败: ${response.statusCode}';
-        logError('[MultipartUploadManager] $errorMessage, 响应: ${response.data}');
+        logError('[TencentMultipartUploadManager] $errorMessage, 响应: ${response.data}');
         _setStatus(MultipartUploadStatus.failed);
         return false;
       }
     } catch (e, stack) {
       errorMessage = '完成分块上传异常: $e';
-      logError('[MultipartUploadManager] $errorMessage', stack);
+      logError('[TencentMultipartUploadManager] $errorMessage', stack);
       _setStatus(MultipartUploadStatus.failed);
       return false;
     }
@@ -338,12 +338,12 @@ class MultipartUploadManager {
   /// 取消分块上传
   Future<bool> abort() async {
     if (uploadId == null) {
-      log('[MultipartUploadManager] UploadId 为空，无需取消');
+      log('[TencentMultipartUploadManager] UploadId 为空，无需取消');
       return true;
     }
 
     try {
-      log('[MultipartUploadManager] 取消分块上传: $uploadId');
+      log('[TencentMultipartUploadManager] 取消分块上传: $uploadId');
 
       final queryParams = {'uploadId': uploadId!};
       if (getSignature == null) {
@@ -365,15 +365,15 @@ class MultipartUploadManager {
       final response = await dio.delete(url, options: Options(headers: headers));
 
       if (response.statusCode == 204) {
-        log('[MultipartUploadManager] 取消分块上传成功');
+        log('[TencentMultipartUploadManager] 取消分块上传成功');
         _setStatus(MultipartUploadStatus.cancelled);
         return true;
       } else {
-        logError('[MultipartUploadManager] 取消分块上传失败: ${response.statusCode}');
+        logError('[TencentMultipartUploadManager] 取消分块上传失败: ${response.statusCode}');
         return false;
       }
     } catch (e, stack) {
-      logError('[MultipartUploadManager] 取消分块上传异常: $e', stack);
+      logError('[TencentMultipartUploadManager] 取消分块上传异常: $e', stack);
       return false;
     }
   }
@@ -394,7 +394,7 @@ class MultipartUploadManager {
 
     // 获取文件大小
     totalBytes = await file.length();
-    log('[MultipartUploadManager] 开始上传文件: ${file.path}, 大小: $totalBytes bytes');
+    log('[TencentMultipartUploadManager] 开始上传文件: ${file.path}, 大小: $totalBytes bytes');
 
     // 初始化
     if (!await initiate()) {
@@ -407,7 +407,7 @@ class MultipartUploadManager {
 
     int successCount = 0;
     final totalChunks = FileChunkReader.calculateChunkCount(totalBytes, chunkSize: chunkSize);
-    log('[MultipartUploadManager] 开始上传 $totalChunks 个分块');
+    log('[TencentMultipartUploadManager] 开始上传 $totalChunks 个分块');
 
     // 使用 Stream 方式读取分块
     await for (final chunk in reader.chunkStream(file)) {
@@ -415,16 +415,16 @@ class MultipartUploadManager {
       if (success) {
         successCount++;
       } else {
-        logError('[MultipartUploadManager] 分块 ${chunk.partNumber} 上传失败');
+        logError('[TencentMultipartUploadManager] 分块 ${chunk.partNumber} 上传失败');
         // 可以选择继续上传其他分块或中断
       }
     }
 
-    log('[MultipartUploadManager] 分块上传完成, 成功: $successCount/$totalChunks');
+    log('[TencentMultipartUploadManager] 分块上传完成, 成功: $successCount/$totalChunks');
 
     if (uploadedParts.length != totalChunks) {
       errorMessage = '部分分块上传失败: $successCount/$totalChunks';
-      logError('[MultipartUploadManager] $errorMessage');
+      logError('[TencentMultipartUploadManager] $errorMessage');
       await abort();
       return false;
     }
