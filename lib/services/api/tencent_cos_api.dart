@@ -87,11 +87,7 @@ class TencentCosApi implements ICloudPlatformApi {
 
       // 生成签名时需要包含 Host 和 Date 头部（按字典序排序）
       final headersForSign = {'date': date, 'host': host};
-      final signature = _getSignature(
-        'GET',
-        '/',
-        headersForSign,
-      );
+      final signature = _getSignature('GET', '/', headersForSign);
 
       log('[TencentCOS] 签名生成完成, Signature: $signature');
 
@@ -242,10 +238,7 @@ class TencentCosApi implements ICloudPlatformApi {
 
       log('[TencentCOS] 发送GET请求...');
       // 直接使用完整 URL，避免 Dio 重新编码
-      final response = await _dio.get(
-        url,
-        options: Options(headers: headers),
-      );
+      final response = await _dio.get(url, options: Options(headers: headers));
 
       log('[TencentCOS] 响应状态码: ${response.statusCode}');
 
@@ -288,7 +281,9 @@ class TencentCosApi implements ICloudPlatformApi {
 
     // 解析分页信息
     try {
-      final isTruncatedElement = resultElement.findElements('IsTruncated').first;
+      final isTruncatedElement = resultElement
+          .findElements('IsTruncated')
+          .first;
       isTruncated = isTruncatedElement.innerText.toLowerCase() == 'true';
       log('[TencentCOS] IsTruncated: $isTruncated');
     } catch (e) {
@@ -365,7 +360,12 @@ class TencentCosApi implements ICloudPlatformApi {
 
       // 从 key 中提取文件夹名称（去掉末尾的 /）
       final name = key.endsWith('/')
-          ? key.substring(0, key.length - 1).split('/').where((e) => e.isNotEmpty).lastOrNull ?? key
+          ? key
+                    .substring(0, key.length - 1)
+                    .split('/')
+                    .where((e) => e.isNotEmpty)
+                    .lastOrNull ??
+                key
           : key.split('/').where((e) => e.isNotEmpty).lastOrNull ?? key;
 
       objects.add(
@@ -407,11 +407,7 @@ class TencentCosApi implements ICloudPlatformApi {
 
       // 生成签名时需要包含 Host 和 Date 头部
       final headersForSign = {'host': host, 'date': date};
-      final signature = _getSignature(
-        'PUT',
-        '/$objectKey',
-        headersForSign,
-      );
+      final signature = _getSignature('PUT', '/$objectKey', headersForSign);
 
       final headers = {
         'Authorization':
@@ -463,11 +459,7 @@ class TencentCosApi implements ICloudPlatformApi {
 
       // 生成签名时需要包含 Host 和 Date 头部
       final headersForSign = {'host': host, 'date': date};
-      final signature = _getSignature(
-        'GET',
-        '/$objectKey',
-        headersForSign,
-      );
+      final signature = _getSignature('GET', '/$objectKey', headersForSign);
 
       final headers = {
         'Authorization':
@@ -578,11 +570,7 @@ class TencentCosApi implements ICloudPlatformApi {
 
       // 生成签名时需要包含 Host 和 Date 头部
       final headersForSign = {'host': host, 'date': date};
-      final signature = _getSignature(
-        'DELETE',
-        '/$objectKey',
-        headersForSign,
-      );
+      final signature = _getSignature('DELETE', '/$objectKey', headersForSign);
 
       final headers = {
         'Authorization':
@@ -591,7 +579,10 @@ class TencentCosApi implements ICloudPlatformApi {
         'Date': date,
       };
 
-      final response = await _dio.delete(url, options: Options(headers: headers));
+      final response = await _dio.delete(
+        url,
+        options: Options(headers: headers),
+      );
       if (response.statusCode == 204) {
         return ApiResponse.success(null);
       } else {
@@ -655,7 +646,8 @@ class TencentCosApi implements ICloudPlatformApi {
       );
 
       // 生成 urlParamList（按字典序排序，只包含参数名，不包含值）
-      final sortedParamKeys = queryParams.keys.map((k) => _urlEncode(k)).toList()..sort();
+      final sortedParamKeys =
+          queryParams.keys.map((k) => _urlEncode(k)).toList()..sort();
       final urlParamList = sortedParamKeys.join(';');
 
       final headers = {
@@ -726,11 +718,7 @@ class TencentCosApi implements ICloudPlatformApi {
 
       // 生成签名时需要包含 Host 和 Date 头部
       final headersForSign = {'host': host, 'date': date};
-      final signature = _getSignature(
-        'PUT',
-        '/$objectKey',
-        headersForSign,
-      );
+      final signature = _getSignature('PUT', '/$objectKey', headersForSign);
 
       final headers = {
         'Authorization':
@@ -823,7 +811,9 @@ class TencentCosApi implements ICloudPlatformApi {
       );
       if (!deleteResult.success) {
         logError('[TencentCOS] 删除源文件夹失败: ${deleteResult.errorMessage}');
-        return ApiResponse.error('重命名成功，但删除原文件夹失败: ${deleteResult.errorMessage}');
+        return ApiResponse.error(
+          '重命名成功，但删除原文件夹失败: ${deleteResult.errorMessage}',
+        );
       }
     } else {
       final deleteResult = await deleteObject(
@@ -833,7 +823,9 @@ class TencentCosApi implements ICloudPlatformApi {
       );
       if (!deleteResult.success) {
         logError('[TencentCOS] 删除源对象失败: ${deleteResult.errorMessage}');
-        return ApiResponse.error('重命名成功，但删除原对象失败: ${deleteResult.errorMessage}');
+        return ApiResponse.error(
+          '重命名成功，但删除原对象失败: ${deleteResult.errorMessage}',
+        );
       }
     }
 
@@ -851,8 +843,12 @@ class TencentCosApi implements ICloudPlatformApi {
     log('[TencentCOS] 开始递归复制文件夹: $sourceFolderKey -> $targetFolderKey');
 
     // 确保源和目标路径都以 / 结尾
-    final normalizedSourceKey = sourceFolderKey.endsWith('/') ? sourceFolderKey : '$sourceFolderKey/';
-    final normalizedTargetKey = targetFolderKey.endsWith('/') ? targetFolderKey : '$targetFolderKey/';
+    final normalizedSourceKey = sourceFolderKey.endsWith('/')
+        ? sourceFolderKey
+        : '$sourceFolderKey/';
+    final normalizedTargetKey = targetFolderKey.endsWith('/')
+        ? targetFolderKey
+        : '$targetFolderKey/';
 
     // 首先复制文件夹标记
     final folderMarkerCopy = await _copyObject(
@@ -890,7 +886,9 @@ class TencentCosApi implements ICloudPlatformApi {
       final objects = listResult.data!.objects;
 
       // 排除文件夹标记本身
-      final fileObjects = objects.where((obj) => obj.key != normalizedSourceKey).toList();
+      final fileObjects = objects
+          .where((obj) => obj.key != normalizedSourceKey)
+          .toList();
 
       // 复制每个文件
       for (final obj in fileObjects) {
@@ -910,7 +908,9 @@ class TencentCosApi implements ICloudPlatformApi {
           successCount++;
         } else {
           failCount++;
-          logError('[TencentCOS] 复制文件失败: ${obj.key}, ${copyResult.errorMessage}');
+          logError(
+            '[TencentCOS] 复制文件失败: ${obj.key}, ${copyResult.errorMessage}',
+          );
         }
       }
 
@@ -998,7 +998,9 @@ class TencentCosApi implements ICloudPlatformApi {
     );
 
     if (result.success) {
-      log('[TencentCOS] 文件夹删除成功: $folderKey${totalFailed > 0 ? '，$totalFailed 个失败' : ''}');
+      log(
+        '[TencentCOS] 文件夹删除成功: $folderKey${totalFailed > 0 ? '，$totalFailed 个失败' : ''}',
+      );
       return ApiResponse.success(null);
     } else {
       logError('[TencentCOS] 删除文件夹标记失败: ${result.errorMessage}');
@@ -1055,11 +1057,7 @@ class TencentCosApi implements ICloudPlatformApi {
 
       // 生成签名时需要包含 Host 和 Date 头部
       final headersForSign = {'host': host, 'date': date};
-      final signature = _getSignature(
-        'PUT',
-        '/$targetKey',
-        headersForSign,
-      );
+      final signature = _getSignature('PUT', '/$targetKey', headersForSign);
 
       // 源对象需要 URL 编码
       final encodedSourceKey = Uri.encodeComponent(sourceKey);
@@ -1107,7 +1105,7 @@ class TencentCosApi implements ICloudPlatformApi {
     required String region,
     required String objectKey,
     required File file,
-    int chunkSize = 64 * 1024 * 1024, // 64MB 分块
+    int chunkSize = kDefaultChunkSize,
     void Function(int sent, int total)? onProgress,
     void Function(int status)? onStatusChanged,
   }) async {
@@ -1233,10 +1231,16 @@ class TencentCosApi implements ICloudPlatformApi {
       String? stringToSign;
       String? formatString;
       try {
-        stringToSign = errorElement.findElements('StringToSign').first.innerText;
+        stringToSign = errorElement
+            .findElements('StringToSign')
+            .first
+            .innerText;
       } catch (_) {}
       try {
-        formatString = errorElement.findElements('FormatString').first.innerText;
+        formatString = errorElement
+            .findElements('FormatString')
+            .first
+            .innerText;
       } catch (_) {}
 
       final sb = StringBuffer();

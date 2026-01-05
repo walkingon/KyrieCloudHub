@@ -13,13 +13,13 @@ class ApiResponse<T> {
   final int? statusCode;
 
   ApiResponse.success(this.data)
-      : success = true,
-        errorMessage = null,
-        statusCode = null;
+    : success = true,
+      errorMessage = null,
+      statusCode = null;
 
   ApiResponse.error(this.errorMessage, {this.statusCode})
-      : success = false,
-        data = null;
+    : success = false,
+      data = null;
 }
 
 class ListObjectsResult {
@@ -42,7 +42,7 @@ abstract class ICloudPlatformApi {
     required String region,
     String prefix = '',
     String delimiter = '/',
-    int maxKeys = 1000,
+    int maxKeys = 100,
     String? marker,
   });
 
@@ -60,7 +60,7 @@ abstract class ICloudPlatformApi {
   /// [bucketName] 存储桶名称
   /// [region] 地域
   /// [objectKey] 对象键
-  /// [chunkSize] 分块大小 (字节), 默认 1MB
+  /// [chunkSize] 分块大小 (字节), 默认 kDefaultChunkSize
   /// [onProgress] 进度回调 (已上传字节数, 总字节数)
   /// [onStatusChanged] 状态变更回调
   Future<ApiResponse<void>> uploadObjectMultipart({
@@ -68,7 +68,7 @@ abstract class ICloudPlatformApi {
     required String region,
     required String objectKey,
     required File file,
-    int chunkSize = 64 * 1024 * 1024, // 64MB 分块
+    int chunkSize = kDefaultChunkSize,
     void Function(int sent, int total)? onProgress,
     void Function(int status)? onStatusChanged,
   });

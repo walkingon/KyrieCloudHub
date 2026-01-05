@@ -663,21 +663,22 @@ class AliyunOssApi implements ICloudPlatformApi {
       );
 
       // 设置签名方法（包装为异步）
-      downloadManager.getSignature = ({
-        required String method,
-        String? bucketName,
-        String? objectKey,
-        required Map<String, String> headers,
-        Map<String, String>? queryParams,
-      }) async {
-        return _getSignatureV4(
-          method: method,
-          bucketName: bucketName,
-          objectKey: objectKey,
-          headers: headers,
-          queryParams: queryParams,
-        );
-      };
+      downloadManager.getSignature =
+          ({
+            required String method,
+            String? bucketName,
+            String? objectKey,
+            required Map<String, String> headers,
+            Map<String, String>? queryParams,
+          }) async {
+            return _getSignatureV4(
+              method: method,
+              bucketName: bucketName,
+              objectKey: objectKey,
+              headers: headers,
+              queryParams: queryParams,
+            );
+          };
 
       // 执行下载
       final success = await downloadManager.downloadFile(
@@ -1244,7 +1245,7 @@ class AliyunOssApi implements ICloudPlatformApi {
     required String region,
     required String objectKey,
     required File file,
-    int chunkSize = 64 * 1024 * 1024,
+    int chunkSize = kDefaultChunkSize,
     void Function(int sent, int total)? onProgress,
     void Function(int status)? onStatusChanged,
   }) async {
@@ -1262,21 +1263,22 @@ class AliyunOssApi implements ICloudPlatformApi {
       );
 
       // 设置签名方法（包装为异步）
-      uploadManager.getSignature = ({
-        required String method,
-        String? bucketName,
-        String? objectKey,
-        required Map<String, String> headers,
-        Map<String, String>? queryParams,
-      }) async {
-        return _getSignatureV4(
-          method: method,
-          bucketName: bucketName,
-          objectKey: objectKey,
-          headers: headers,
-          queryParams: queryParams,
-        );
-      };
+      uploadManager.getSignature =
+          ({
+            required String method,
+            String? bucketName,
+            String? objectKey,
+            required Map<String, String> headers,
+            Map<String, String>? queryParams,
+          }) async {
+            return _getSignatureV4(
+              method: method,
+              bucketName: bucketName,
+              objectKey: objectKey,
+              headers: headers,
+              queryParams: queryParams,
+            );
+          };
 
       // 状态映射：将AliyunMultipartUploadStatus映射到原来的int状态码
       uploadManager.onStatusChanged = (status) {
