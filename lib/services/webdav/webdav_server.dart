@@ -515,9 +515,16 @@ class WebdavServer {
 
       logUi('WebDAV: Server started on port ${config.port}');
 
-      await for (final request in _server!) {
-        _handleRequest(request);
-      }
+      // 在后台处理请求，不要阻塞 start() 方法
+      _server!.listen(
+        _handleRequest,
+        onError: (error) {
+          logError('WebDAV: Server listen error: $error');
+        },
+        onDone: () {
+          logUi('WebDAV: Server connection closed');
+        },
+      );
     } catch (e) {
       logError('WebDAV: Failed to start server: $e');
       _isRunning = false;

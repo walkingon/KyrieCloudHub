@@ -379,7 +379,11 @@ class _MainScreenState extends State<MainScreen> {
   /// 构建WebDAV状态指示器
   Widget _buildWebdavIndicator(Bucket bucket) {
     final webdavService = WebdavService();
+    final serverKey = '${_currentPlatform?.value}_${bucket.name}';
     final isRunning = webdavService.isServerRunning(bucket.name, _currentPlatform!);
+    final port = webdavService.getServerPort(bucket.name, _currentPlatform!);
+
+    logUi('WebDAV indicator - bucket: ${bucket.name}, key: $serverKey, isRunning: $isRunning, port: $port, servers: ${webdavService.getRunningServersInfo()}');
 
     if (isRunning) {
       return Icon(
@@ -431,6 +435,8 @@ class _MainScreenState extends State<MainScreen> {
 
   /// 切换WebDAV服务状态
   Future<void> _toggleWebdavService(Bucket bucket, bool currentlyRunning) async {
+    if (_currentPlatform == null) return;
+
     final storage = Provider.of<StorageService>(context, listen: false);
     final credential = await storage.getCredential(_currentPlatform!);
 
@@ -443,7 +449,12 @@ class _MainScreenState extends State<MainScreen> {
 
     if (currentlyRunning) {
       await webdavService.stopServerByBucket(bucket.name, _currentPlatform!);
-      _showMessage('WebDAV服务已关闭');
+      logUi('WebDAV: Stopped server for bucket: ${bucket.name}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('WebDAV服务已关闭')),
+        );
+      }
     } else {
       // 查找可用端口
       int port = 8080;
@@ -467,6 +478,7 @@ class _MainScreenState extends State<MainScreen> {
           port++;
         }
       }
+      logUi('WebDAV: Found available port: $port');
 
       final success = await webdavService.startServer(
         bucket: bucket,
@@ -475,14 +487,23 @@ class _MainScreenState extends State<MainScreen> {
         port: port,
       );
 
-      if (success) {
-        _showMessage('WebDAV服务已启动\n访问地址: http://localhost:$port');
-      } else {
-        _showErrorDialog('启动WebDAV服务失败');
+      logUi('WebDAV: startServer result: $success, isRunning: ${webdavService.isServerRunning(bucket.name, _currentPlatform!)}');
+
+      if (mounted) {
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('WebDAV服务已启动\n访问地址: http://localhost:$port')),
+          );
+        } else {
+          _showErrorDialog('启动WebDAV服务失败');
+        }
       }
     }
 
-    setState(() {});
+    // 强制刷新界面
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   /// 复制WebDAV URL
