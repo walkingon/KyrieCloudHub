@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:xml/xml.dart';
 import '../../models/bucket.dart';
 import '../../models/object_file.dart';
@@ -11,6 +12,13 @@ import 'cloud_platform_api.dart';
 import 'aliyun/aliyun_signature_generator.dart';
 import 'aliyun/aliyun_multipart_upload_manager.dart';
 import 'aliyun/aliyun_multipart_download_manager.dart';
+
+/// HTTP 连接池配置
+const _connectionPoolConfig = {
+  'maxConnectionsPerHost': 10,    // 每个host最大连接数
+  'idleTimeout': Duration(seconds: 30), // 空闲连接超时
+  'keepAlive': true,               // 保持连接活跃
+};
 
 /// 阿里云OSS API实现
 ///
@@ -30,9 +38,17 @@ class AliyunOssApi implements ICloudPlatformApi {
     _dio = Dio(
       BaseOptions(
         connectTimeout: const Duration(seconds: 30),
-        receiveTimeout: const Duration(seconds: 30),
-        sendTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(seconds: 60),  // 大文件下载增加超时
+        sendTimeout: const Duration(seconds: 60),     // 大文件上传增加超时
       ),
+    );
+
+    // 配置 HTTP 连接池（使用 IOHttpClientAdapter）
+    _dio.httpClientAdapter = IOHttpClientAdapter(
+      createHttpClient: () => HttpClient()
+        ..maxConnectionsPerHost = _connectionPoolConfig['maxConnectionsPerHost'] as int
+        ..idleTimeout = _connectionPoolConfig['idleTimeout'] as Duration
+        ..connectionTimeout = const Duration(seconds: 30),
     );
   }
 
@@ -618,9 +634,10 @@ class AliyunOssApi implements ICloudPlatformApi {
       );
 
       if (response.statusCode == 200) {
-        final stream = response.data as Stream<List<int>>;
+        // 使用 IOHttpClientAdapter 时，response.data 是 ResponseBody 类型
+        final responseBody = response.data as ResponseBody;
         final fileSink = outputFile.openWrite();
-        await stream.pipe(fileSink);
+        await responseBody.stream.cast<List<int>>().pipe(fileSink);
         log('[AliyunOSS] 下载成功');
         return ApiResponse.success(null);
       } else {

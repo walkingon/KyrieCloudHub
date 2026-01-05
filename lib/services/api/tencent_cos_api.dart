@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:xml/xml.dart';
 import '../../models/bucket.dart';
 import '../../models/object_file.dart';
@@ -11,6 +12,13 @@ import 'cloud_platform_api.dart';
 import 'tencent/tencent_multipart_upload_manager.dart';
 import 'tencent/tencent_multipart_download_manager.dart';
 import 'tencent/tencent_signature_generator.dart';
+
+/// HTTP 连接池配置
+const _connectionPoolConfig = {
+  'maxConnectionsPerHost': 10,    // 每个host最大连接数
+  'idleTimeout': Duration(seconds: 30), // 空闲连接超时
+  'keepAlive': true,               // 保持连接活跃
+};
 
 class TencentCosApi implements ICloudPlatformApi {
   /// 控制签名生成过程日志的打印开关
@@ -23,9 +31,17 @@ class TencentCosApi implements ICloudPlatformApi {
     _dio = Dio(
       BaseOptions(
         connectTimeout: const Duration(seconds: 30),
-        receiveTimeout: const Duration(seconds: 30),
-        sendTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(seconds: 60),  // 大文件下载增加超时
+        sendTimeout: const Duration(seconds: 60),     // 大文件上传增加超时
       ),
+    );
+
+    // 配置 HTTP 连接池（使用 IOHttpClientAdapter）
+    _dio.httpClientAdapter = IOHttpClientAdapter(
+      createHttpClient: () => HttpClient()
+        ..maxConnectionsPerHost = _connectionPoolConfig['maxConnectionsPerHost'] as int
+        ..idleTimeout = _connectionPoolConfig['idleTimeout'] as Duration
+        ..connectionTimeout = const Duration(seconds: 30),
     );
   }
 
@@ -126,7 +142,7 @@ class TencentCosApi implements ICloudPlatformApi {
         );
       }
     } on DioException catch (e) {
-      final errorDetail = _parseTencentCloudError(e);
+      final errorDetail = await _parseTencentCloudError(e);
       logError('[TencentCOS] DioException: $errorDetail');
       return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
     } catch (e, stack) {
@@ -261,7 +277,7 @@ class TencentCosApi implements ICloudPlatformApi {
       // 输出完整的错误响应数据用于调试
       final errorData = e.response?.data?.toString() ?? '';
       logError('[TencentCOS] DioException 原始响应: $errorData');
-      final errorDetail = _parseTencentCloudError(e);
+      final errorDetail = await _parseTencentCloudError(e);
       logError('[TencentCOS] DioException: $errorDetail');
       return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
     } catch (e, stack) {
@@ -432,7 +448,7 @@ class TencentCosApi implements ICloudPlatformApi {
         );
       }
     } on DioException catch (e) {
-      final errorDetail = _parseTencentCloudError(e);
+      final errorDetail = await _parseTencentCloudError(e);
       return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
     } catch (e) {
       return ApiResponse.error(e.toString());
@@ -488,7 +504,7 @@ class TencentCosApi implements ICloudPlatformApi {
         );
       }
     } on DioException catch (e) {
-      final errorDetail = _parseTencentCloudError(e);
+      final errorDetail = await _parseTencentCloudError(e);
       return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
     } catch (e) {
       return ApiResponse.error(e.toString());
@@ -592,7 +608,7 @@ class TencentCosApi implements ICloudPlatformApi {
         );
       }
     } on DioException catch (e) {
-      final errorDetail = _parseTencentCloudError(e);
+      final errorDetail = await _parseTencentCloudError(e);
       return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
     } catch (e) {
       return ApiResponse.error(e.toString());
@@ -678,7 +694,7 @@ class TencentCosApi implements ICloudPlatformApi {
         );
       }
     } on DioException catch (e) {
-      final errorDetail = _parseTencentCloudError(e);
+      final errorDetail = await _parseTencentCloudError(e);
       logError('[TencentCOS] DioException: $errorDetail');
       return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
     } catch (e, stack) {
@@ -746,7 +762,7 @@ class TencentCosApi implements ICloudPlatformApi {
         );
       }
     } on DioException catch (e) {
-      final errorDetail = _parseTencentCloudError(e);
+      final errorDetail = await _parseTencentCloudError(e);
       logError('[TencentCOS] DioException: $errorDetail');
       return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
     } catch (e, stack) {
@@ -1090,7 +1106,7 @@ class TencentCosApi implements ICloudPlatformApi {
         );
       }
     } on DioException catch (e) {
-      final errorDetail = _parseTencentCloudError(e);
+      final errorDetail = await _parseTencentCloudError(e);
       logError('[TencentCOS] DioException: $errorDetail');
       return ApiResponse.error(errorDetail, statusCode: e.response?.statusCode);
     } catch (e, stack) {
@@ -1195,7 +1211,7 @@ class TencentCosApi implements ICloudPlatformApi {
   ///   <RequestId>xxx</RequestId>
   /// </Error>
   /// ```
-  String _parseTencentCloudError(DioException e) {
+  Future<String> _parseTencentCloudError(DioException e) async {
     final response = e.response;
     if (response == null) {
       return e.message ?? 'Unknown error';
@@ -1213,6 +1229,14 @@ class TencentCosApi implements ICloudPlatformApi {
     if (errorData is List<int>) {
       // 将字节数组解码为UTF-8字符串
       dataStr = utf8.decode(errorData);
+    } else if (errorData is ResponseBody) {
+      // 使用 IOHttpClientAdapter 时，错误响应可能是 ResponseBody 类型
+      try {
+        final bytesList = await errorData.stream.toList();
+        dataStr = utf8.decode(bytesList.expand((e) => e).toList());
+      } catch (_) {
+        dataStr = 'HTTP $statusCode error (无法读取错误响应)';
+      }
     } else {
       dataStr = errorData.toString();
     }
