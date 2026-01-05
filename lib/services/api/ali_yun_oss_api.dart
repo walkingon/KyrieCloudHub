@@ -119,10 +119,9 @@ class AliyunOssApi implements ICloudPlatformApi {
   String _encodePath(String path) {
     // 使用 Uri.encodeComponent 编码，然后还原 /
     // 注意：Uri.encodeComponent 不会编码圆括号 ()，需要手动编码
-    return Uri.encodeComponent(path)
-        .replaceAll('%2F', '/')
-        .replaceAll('(', '%28')
-        .replaceAll(')', '%29');
+    return Uri.encodeComponent(
+      path,
+    ).replaceAll('%2F', '/').replaceAll('(', '%28').replaceAll(')', '%29');
   }
 
   /// marker 值的特殊编码：encodeComponent 基础上额外编码圆括号
@@ -352,9 +351,7 @@ class AliyunOssApi implements ICloudPlatformApi {
 
       // 构建 URL 时只编码 key，value 已经是编码后的值
       final queryString = queryParams.entries
-          .map(
-            (e) => '${Uri.encodeComponent(e.key)}=${e.value}',
-          )
+          .map((e) => '${Uri.encodeComponent(e.key)}=${e.value}')
           .join('&');
       final url = 'https://$host/?$queryString';
 
@@ -416,7 +413,9 @@ class AliyunOssApi implements ICloudPlatformApi {
 
       // 解析分页信息
       try {
-        final isTruncatedElement = resultElement.findElements('IsTruncated').first;
+        final isTruncatedElement = resultElement
+            .findElements('IsTruncated')
+            .first;
         isTruncated = isTruncatedElement.innerText.toLowerCase() == 'true';
         log('[AliyunOSS] IsTruncated: $isTruncated');
       } catch (e) {
@@ -424,7 +423,9 @@ class AliyunOssApi implements ICloudPlatformApi {
       }
 
       try {
-        final nextMarkerElement = resultElement.findElements('NextMarker').first;
+        final nextMarkerElement = resultElement
+            .findElements('NextMarker')
+            .first;
         nextMarker = nextMarkerElement.innerText;
         log('[AliyunOSS] NextMarker: $nextMarker');
       } catch (e) {
@@ -484,7 +485,9 @@ class AliyunOssApi implements ICloudPlatformApi {
 
       // 解析 CommonPrefixes（文件夹/前缀）
       // 当使用 delimiter=/ 时，文件夹会出现在 CommonPrefixes 中
-      final commonPrefixesElements = resultElement.findElements('CommonPrefixes');
+      final commonPrefixesElements = resultElement.findElements(
+        'CommonPrefixes',
+      );
       for (final prefixElem in commonPrefixesElements) {
         final key = prefixElem.findElements('Prefix').first.innerText;
 
@@ -496,7 +499,12 @@ class AliyunOssApi implements ICloudPlatformApi {
 
         // 从 key 中提取文件夹名称（去掉末尾的 /）
         final name = key.endsWith('/')
-            ? key.substring(0, key.length - 1).split('/').where((e) => e.isNotEmpty).lastOrNull ?? key
+            ? key
+                      .substring(0, key.length - 1)
+                      .split('/')
+                      .where((e) => e.isNotEmpty)
+                      .lastOrNull ??
+                  key
             : key.split('/').where((e) => e.isNotEmpty).lastOrNull ?? key;
 
         objects.add(
@@ -645,11 +653,11 @@ class AliyunOssApi implements ICloudPlatformApi {
     required String objectKey,
     required File outputFile,
     int chunkSize = kDefaultChunkSize,
-    int concurrency = kDefaultConcurrency,
     void Function(int received, int total)? onProgress,
   }) async {
     try {
       log('[AliyunOSS] 开始分块下载: $objectKey -> ${outputFile.path}');
+      log('[AliyunOSS] 分块大小: $chunkSize bytes, 串行下载模式');
 
       final host = _getEndpoint(bucketName);
       final url = 'https://$host/${_encodePath(objectKey)}';
@@ -661,13 +669,22 @@ class AliyunOssApi implements ICloudPlatformApi {
         objectKey: objectKey,
       );
 
-      final headResponse = await _dio.head(url, options: Options(headers: headHeaders));
+      log('[AliyunOSS] 获取文件大小...');
+      final headResponse = await _dio.head(
+        url,
+        options: Options(headers: headHeaders),
+      );
       if (headResponse.statusCode != 200) {
-        return ApiResponse.error('Failed to get file size', statusCode: headResponse.statusCode);
+        logError('[AliyunOSS] 获取文件大小失败: ${headResponse.statusCode}');
+        return ApiResponse.error(
+          'Failed to get file size',
+          statusCode: headResponse.statusCode,
+        );
       }
 
       final contentLength = headResponse.headers['content-length'];
       if (contentLength == null || contentLength.isEmpty) {
+        logError('[AliyunOSS] Content-Length header not found');
         return ApiResponse.error('Content-Length header not found');
       }
       final totalBytes = int.parse(contentLength.first);
@@ -687,87 +704,67 @@ class AliyunOssApi implements ICloudPlatformApi {
           'data': null,
         });
       }
-      log('[AliyunOSS] 分块数: ${chunks.length}');
+      log('[AliyunOSS] 分块数: ${chunks.length}, 开始串行下载...');
 
-      // 3. 并发下载分块
+      // 3. 串行下载分块（逐个按顺序下载）
       int downloadedBytes = 0;
-      final failedChunks = <Map<String, dynamic>>[];
+      int successCount = 0;
+      int failCount = 0;
 
-      for (int i = 0; i < chunks.length; i += concurrency) {
-        final batch = chunks.sublist(i, min<int>(i + concurrency, chunks.length));
+      for (int i = 0; i < chunks.length; i++) {
+        final chunk = chunks[i];
+        final partNumber = chunk['partNumber'] as int;
+        final start = chunk['start'] as int;
+        final end = chunk['end'] as int;
+        final chunkSize_ = chunk['size'] as int;
 
-        // 并发下载这一批分块
-        final results = await Future.wait(
-          batch.map((chunk) async {
-            try {
-              final rangeHeaders = _buildHeaders(
-                method: 'GET',
-                bucketName: bucketName,
-                objectKey: objectKey,
-                extraHeaders: {
-                  'Range': 'bytes=${chunk['start']}-${chunk['end']}',
-                },
-              );
+        //log('[AliyunOSS] 下载分块 $partNumber/${chunks.length}: bytes=$start-$end ($chunkSize_ bytes)');
 
-              final response = await _dio.get(
-                url,
-                options: Options(headers: rangeHeaders, responseType: ResponseType.bytes),
-              );
+        try {
+          final rangeHeaders = _buildHeaders(
+            method: 'GET',
+            bucketName: bucketName,
+            objectKey: objectKey,
+            extraHeaders: {'Range': 'bytes=$start-$end'},
+          );
 
-              if (response.statusCode == 206) {
-                chunk['data'] = Uint8List.fromList(response.data as List<int>);
-                downloadedBytes += (chunk['size'] as int);
-                onProgress?.call(downloadedBytes, totalBytes);
-                return true;
-              }
-              return false;
-            } catch (e) {
-              logError('[AliyunOSS] 分块下载失败: $e');
-              return false;
-            }
-          }),
-        );
+          final response = await _dio.get(
+            url,
+            options: Options(
+              headers: rangeHeaders,
+              responseType: ResponseType.bytes,
+            ),
+          );
 
-        // 记录失败的分块
-        for (int j = 0; j < results.length; j++) {
-          if (!results[j]) {
-            failedChunks.add(batch[j]);
+          if (response.statusCode == 206) {
+            chunk['data'] = Uint8List.fromList(response.data as List<int>);
+            downloadedBytes += chunkSize_;
+            onProgress?.call(downloadedBytes, totalBytes);
+            successCount++;
+            log(
+              '[AliyunOSS] 分块 $partNumber 下载成功 ($downloadedBytes/$totalBytes bytes)',
+            );
+          } else {
+            failCount++;
+            logError(
+              '[AliyunOSS] 分块 $partNumber 下载失败: HTTP ${response.statusCode}',
+            );
+            return ApiResponse.error(
+              'Failed to download chunk $partNumber',
+              statusCode: response.statusCode,
+            );
           }
+        } catch (e) {
+          failCount++;
+          logError('[AliyunOSS] 分块 $partNumber 下载异常: $e');
+          return ApiResponse.error('Failed to download chunk $partNumber: $e');
         }
       }
 
-      // 重试失败的分块
-      if (failedChunks.isNotEmpty) {
-        log('[AliyunOSS] 重试 ${failedChunks.length} 个失败分块...');
-        for (final chunk in failedChunks) {
-          try {
-            final rangeHeaders = _buildHeaders(
-              method: 'GET',
-              bucketName: bucketName,
-              objectKey: objectKey,
-              extraHeaders: {
-                'Range': 'bytes=${chunk['start']}-${chunk['end']}',
-              },
-            );
-
-            final response = await _dio.get(
-              url,
-              options: Options(headers: rangeHeaders, responseType: ResponseType.bytes),
-            );
-
-            if (response.statusCode == 206) {
-              chunk['data'] = Uint8List.fromList(response.data as List<int>);
-            } else {
-              return ApiResponse.error('Failed to download chunk');
-            }
-          } catch (e) {
-            return ApiResponse.error('Failed to retry chunk: $e');
-          }
-        }
-      }
+      log('[AliyunOSS] 所有分块下载完成: 成功 $successCount, 失败 $failCount');
 
       // 4. 合并分块到文件
-      log('[AliyunOSS] 开始合并分块...');
+      log('[AliyunOSS] 开始合并分块到文件...');
       final raf = await outputFile.open(mode: FileMode.writeOnly);
       try {
         for (final chunk in chunks) {
@@ -780,7 +777,7 @@ class AliyunOssApi implements ICloudPlatformApi {
         await raf.close();
       }
 
-      log('[AliyunOSS] 分块下载成功');
+      log('[AliyunOSS] 分块下载成功: ${outputFile.path}');
       return ApiResponse.success(null);
     } on DioException catch (e) {
       final errorDetail = _parseAliyunError(e);
@@ -810,7 +807,10 @@ class AliyunOssApi implements ICloudPlatformApi {
         objectKey: objectKey,
       );
 
-      final response = await _dio.delete(url, options: Options(headers: headers));
+      final response = await _dio.delete(
+        url,
+        options: Options(headers: headers),
+      );
 
       if (response.statusCode == 204 || response.statusCode == 200) {
         log('[AliyunOSS] 删除成功');
@@ -880,8 +880,8 @@ class AliyunOssApi implements ICloudPlatformApi {
       final signature = _getSignatureV4(
         method: 'POST',
         bucketName: bucketName,
-        objectKey: '',  // 空字符串，path为 /
-        queryParams: {'delete': ''},  // ?delete 作为查询参数
+        objectKey: '', // 空字符串，path为 /
+        queryParams: {'delete': ''}, // ?delete 作为查询参数
         headers: headers,
       );
       headers['Authorization'] = signature;
@@ -1031,7 +1031,9 @@ class AliyunOssApi implements ICloudPlatformApi {
       );
       if (!deleteResult.success) {
         logError('[AliyunOSS] 删除源文件夹失败: ${deleteResult.errorMessage}');
-        return ApiResponse.error('重命名成功，但删除原文件夹失败: ${deleteResult.errorMessage}');
+        return ApiResponse.error(
+          '重命名成功，但删除原文件夹失败: ${deleteResult.errorMessage}',
+        );
       }
     } else {
       final deleteResult = await deleteObject(
@@ -1041,7 +1043,9 @@ class AliyunOssApi implements ICloudPlatformApi {
       );
       if (!deleteResult.success) {
         logError('[AliyunOSS] 删除源对象失败: ${deleteResult.errorMessage}');
-        return ApiResponse.error('重命名成功，但删除原对象失败: ${deleteResult.errorMessage}');
+        return ApiResponse.error(
+          '重命名成功，但删除原对象失败: ${deleteResult.errorMessage}',
+        );
       }
     }
 
@@ -1059,8 +1063,12 @@ class AliyunOssApi implements ICloudPlatformApi {
     log('[AliyunOSS] 开始递归复制文件夹: $sourceFolderKey -> $targetFolderKey');
 
     // 确保源和目标路径都以 / 结尾
-    final normalizedSourceKey = sourceFolderKey.endsWith('/') ? sourceFolderKey : '$sourceFolderKey/';
-    final normalizedTargetKey = targetFolderKey.endsWith('/') ? targetFolderKey : '$targetFolderKey/';
+    final normalizedSourceKey = sourceFolderKey.endsWith('/')
+        ? sourceFolderKey
+        : '$sourceFolderKey/';
+    final normalizedTargetKey = targetFolderKey.endsWith('/')
+        ? targetFolderKey
+        : '$targetFolderKey/';
 
     // 首先复制文件夹标记
     final folderMarkerCopy = await _copyObject(
@@ -1098,7 +1106,9 @@ class AliyunOssApi implements ICloudPlatformApi {
       final objects = listResult.data!.objects;
 
       // 排除文件夹标记本身
-      final fileObjects = objects.where((obj) => obj.key != normalizedSourceKey).toList();
+      final fileObjects = objects
+          .where((obj) => obj.key != normalizedSourceKey)
+          .toList();
 
       // 复制每个文件
       for (final obj in fileObjects) {
@@ -1118,7 +1128,9 @@ class AliyunOssApi implements ICloudPlatformApi {
           successCount++;
         } else {
           failCount++;
-          logError('[AliyunOSS] 复制文件失败: ${obj.key}, ${copyResult.errorMessage}');
+          logError(
+            '[AliyunOSS] 复制文件失败: ${obj.key}, ${copyResult.errorMessage}',
+          );
         }
       }
 
@@ -1206,7 +1218,9 @@ class AliyunOssApi implements ICloudPlatformApi {
     );
 
     if (result.success) {
-      log('[AliyunOSS] 文件夹删除成功: $folderKey${totalFailed > 0 ? '，$totalFailed 个失败' : ''}');
+      log(
+        '[AliyunOSS] 文件夹删除成功: $folderKey${totalFailed > 0 ? '，$totalFailed 个失败' : ''}',
+      );
       return ApiResponse.success(null);
     } else {
       logError('[AliyunOSS] 删除文件夹标记失败: ${result.errorMessage}');
@@ -1339,7 +1353,10 @@ class AliyunOssApi implements ICloudPlatformApi {
       );
 
       log('[AliyunOSS] 初始化分块上传...');
-      final initResponse = await _dio.post(initUrl, options: Options(headers: initHeaders));
+      final initResponse = await _dio.post(
+        initUrl,
+        options: Options(headers: initHeaders),
+      );
 
       if (initResponse.statusCode != 200) {
         return ApiResponse.error(
@@ -1420,8 +1437,11 @@ class AliyunOssApi implements ICloudPlatformApi {
 
           // 直接打印响应状态（绕过可能的日志拦截问题）
           final statusCode = uploadResponse.statusCode ?? 0;
-          final etagHeader = uploadResponse.headers['etag']?.first ?? 'NOT_FOUND';
-          log('[AliyunOSS] 分块 $partNumber 响应: status=$statusCode, etag=$etagHeader');
+          final etagHeader =
+              uploadResponse.headers['etag']?.first ?? 'NOT_FOUND';
+          log(
+            '[AliyunOSS] 分块 $partNumber 响应: status=$statusCode, etag=$etagHeader',
+          );
 
           if (statusCode == 200) {
             // 记录已上传的分块信息
@@ -1435,7 +1455,9 @@ class AliyunOssApi implements ICloudPlatformApi {
             });
 
             onProgress?.call(chunk.offset + chunk.size, fileSize);
-            log('[AliyunOSS] 分块 $partNumber 上传成功, ETag: ${uploadedParts.last['ETag']}');
+            log(
+              '[AliyunOSS] 分块 $partNumber 上传成功, ETag: ${uploadedParts.last['ETag']}',
+            );
           } else {
             logError(
               '[AliyunOSS] 分块 $partNumber 上传失败: ${uploadResponse.statusCode}',

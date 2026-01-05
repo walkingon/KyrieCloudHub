@@ -510,7 +510,6 @@ class TencentCosApi implements ICloudPlatformApi {
     required String objectKey,
     required File outputFile,
     int chunkSize = kDefaultChunkSize,
-    int concurrency = kDefaultConcurrency,
     void Function(int received, int total)? onProgress,
   }) async {
     try {
@@ -523,7 +522,6 @@ class TencentCosApi implements ICloudPlatformApi {
         region: region,
         objectKey: objectKey,
         chunkSize: chunkSize,
-        concurrency: concurrency,
       );
 
       // 设置签名回调

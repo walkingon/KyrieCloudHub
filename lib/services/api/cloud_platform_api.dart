@@ -6,9 +6,6 @@ import '../../models/object_file.dart';
 /// 默认分块大小 (64MB)
 const int kDefaultChunkSize = 64 * 1024 * 1024;
 
-/// 默认并发数
-const int kDefaultConcurrency = 4;
-
 class ApiResponse<T> {
   final bool success;
   final T? data;
@@ -92,7 +89,6 @@ abstract class ICloudPlatformApi {
   /// [region] 地域
   /// [objectKey] 对象键
   /// [chunkSize] 分块大小 (字节), 默认 kDefaultChunkSize
-  /// [concurrency] 并发数, 默认 kDefaultConcurrency
   /// [onProgress] 进度回调 (已下载字节数, 总字节数)
   Future<ApiResponse<void>> downloadObjectMultipart({
     required String bucketName,
@@ -100,7 +96,6 @@ abstract class ICloudPlatformApi {
     required String objectKey,
     required File outputFile,
     int chunkSize = kDefaultChunkSize,
-    int concurrency = kDefaultConcurrency,
     void Function(int received, int total)? onProgress,
   });
 

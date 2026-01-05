@@ -1783,7 +1783,6 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         objectKey: obj.key,
         outputFile: saveFile,
         chunkSize: 64 * 1024 * 1024, // 64MB 分块
-        concurrency: 4, // 并发数
         onProgress: (r, t) {
           dialogSetState?.call(() {
             received = r;
@@ -2177,7 +2176,6 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           objectKey: obj.key,
           outputFile: saveFile,
           chunkSize: 64 * 1024 * 1024, // 64MB 分块
-          concurrency: 4, // 并发数
           onProgress: (r, t) {},
         );
       } else {

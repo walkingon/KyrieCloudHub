@@ -49,7 +49,6 @@ class MultipartDownloadManager {
   final String region;
   final String objectKey;
   final int chunkSize;
-  final int concurrency;
 
   /// 文件总大小
   int _totalBytes = 0;
@@ -87,7 +86,6 @@ class MultipartDownloadManager {
     required this.region,
     required this.objectKey,
     this.chunkSize = kDefaultChunkSize,
-    this.concurrency = kDefaultConcurrency,
   });
 
   /// 获取请求主机
