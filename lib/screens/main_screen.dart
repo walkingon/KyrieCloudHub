@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../models/bucket.dart';
 import '../models/platform_type.dart';
@@ -507,9 +508,9 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   /// 复制WebDAV URL
-  void _copyWebdavUrl(Bucket bucket, int port) {
+  void _copyWebdavUrl(Bucket bucket, int port) async {
     final url = 'http://localhost:$port';
-    // 实际复制到剪贴板的逻辑
+    await Clipboard.setData(ClipboardData(text: url));
     _showMessage('地址已复制: $url');
   }
 
