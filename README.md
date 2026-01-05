@@ -111,8 +111,3 @@ KyrieCloudHub是一款使用Flutter技术开发的，跨平台（Windows、Andro
 
 ## [技术架构](技术架构.md)
 
-## 未来规划
-
-1. 功能增强
-
-    - 存储桶支持开启WebDAV，长按存储桶显示开启/关闭WebDAV服务。（已实现）
