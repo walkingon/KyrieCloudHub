@@ -139,9 +139,8 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     if (customDir != null && customDir.isNotEmpty) {
       return customDir;
     }
-    // 默认使用系统下载目录
-    final systemDir = await FilePathHelper.getSystemDownloadsDirectory();
-    return systemDir ?? '';
+    // 默认使用系统下载目录（使用缓存值）
+    return FilePathHelper.systemDownloadsDirectory ?? '';
   }
 
   // ==================== 数据加载 ====================

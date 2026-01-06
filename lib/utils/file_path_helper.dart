@@ -9,15 +9,37 @@ class FilePathHelper {
   /// 应用下载子目录名称
   static const String kDownloadSubDir = 'KyrieCloudHubDownload';
 
-  /// 获取系统下载目录路径
-  /// 支持 Windows、macOS、Linux、Android、iOS
-  ///
-  /// 返回: 下载目录的基础路径（不包含 ${FilePathHelper.kDownloadSubDir} 子目录）
-  /// - Windows: USERPROFILE/Downloads
-  /// - macOS/Linux: HOME/Downloads
-  /// - Android/iOS: 使用 AndroidPathProvider 获取公共下载目录
-  /// - 失败时返回 null
-  static Future<String?> getSystemDownloadsDirectory() async {
+  /// 系统下载目录缓存（应用启动后初始化）
+  static String? _systemDownloadsDirectory;
+
+  /// 初始化系统下载目录
+  /// 应用启动时调用一次，后续通过 systemDownloadsDirectory 获取
+  static Future<void> initSystemDownloadsDirectory() async {
+    _systemDownloadsDirectory = await _getSystemDownloadsDirectory();
+  }
+
+  /// 获取缓存的系统下载目录
+  /// 必须在 initSystemDownloadsDirectory() 调用后才能使用
+  static String? get systemDownloadsDirectory => _systemDownloadsDirectory;
+
+  /// 同步获取系统下载目录路径（使用缓存值，失败时回退到同步获取）
+  static String getSystemDownloadsDirectorySync() {
+    if (_systemDownloadsDirectory != null) {
+      return _systemDownloadsDirectory!;
+    }
+    // 回退到原始同步获取逻辑
+    if (Platform.isWindows) {
+      final downloads = Platform.environment['USERPROFILE'];
+      return downloads != null ? '$downloads\\Downloads' : '';
+    } else if (Platform.isMacOS || Platform.isLinux) {
+      final home = Platform.environment['HOME'];
+      return home != null ? '$home/Downloads' : '';
+    }
+    return '';
+  }
+
+  /// 内部方法：获取系统下载目录路径（原始实现）
+  static Future<String?> _getSystemDownloadsDirectory() async {
     if (Platform.isWindows) {
       // Windows: 使用环境变量
       return Platform.environment['USERPROFILE'] != null
@@ -38,28 +60,10 @@ class FilePathHelper {
     return null;
   }
 
-  /// 同步获取系统下载目录路径
-  /// 注意: Android/iOS 无法同步获取，返回空字符串
-  ///
-  /// 返回: 下载目录的基础路径
-  static String getSystemDownloadsDirectorySync() {
-    if (Platform.isWindows) {
-      final downloads = Platform.environment['USERPROFILE'];
-      return downloads != null ? '$downloads\\Downloads' : '';
-    } else if (Platform.isMacOS || Platform.isLinux) {
-      final home = Platform.environment['HOME'];
-      return home != null ? '$home/Downloads' : '';
-    } else if (Platform.isAndroid || Platform.isIOS) {
-      // Android/iOS: 同步方法无法直接获取，需要返回空字符串让异步方法处理
-      return '';
-    }
-    return '';
-  }
-
   /// 获取默认下载根目录（包含 ${FilePathHelper.kDownloadSubDir} 子目录）
   /// 如果系统下载目录不可用，返回应用数据目录
   static Future<String> getDefaultDownloadRoot() async {
-    final downloads = await getSystemDownloadsDirectory();
+    final downloads = await _getSystemDownloadsDirectory();
     if (downloads != null && downloads.isNotEmpty) {
       return downloads;
     }

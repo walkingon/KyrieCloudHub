@@ -35,8 +35,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   /// 获取当前显示的下载根目录（带 FilePathHelper.kDownloadSubDir 后缀）
   String get _displayDownloadRoot {
     if (_downloadDirectory.isEmpty) {
-      // 返回默认目录
-      final defaultDir = FilePathHelper.getSystemDownloadsDirectorySync();
+      // 返回默认目录（使用缓存值）
+      final defaultDir = FilePathHelper.systemDownloadsDirectory ?? '';
       return '$defaultDir/${FilePathHelper.kDownloadSubDir}/';
     }
     return '$_downloadDirectory/${FilePathHelper.kDownloadSubDir}/';
@@ -98,8 +98,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<String> getDownloadsDirectory() async {
-    // 尝试获取系统下载目录
-    final downloads = await getDownloadsDirectoryPath();
+    // 尝试获取系统下载目录（使用缓存值）
+    final downloads = getDownloadsDirectoryPath();
     if (downloads != null && downloads.isNotEmpty) {
       return downloads;
     }
@@ -109,9 +109,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return directory.path;
   }
 
-  // 辅助方法：获取系统下载目录路径
-  Future<String?> getDownloadsDirectoryPath() async {
-    return FilePathHelper.getSystemDownloadsDirectory();
+  // 辅助方法：获取系统下载目录路径（使用缓存值）
+  String? getDownloadsDirectoryPath() {
+    return FilePathHelper.systemDownloadsDirectory;
   }
 
   @override
@@ -170,7 +170,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              '文件存储路径: 下载/${FilePathHelper.kDownloadSubDir}/平台名/存储桶名/文件对象键',
+              '文件存储路径: ${FilePathHelper.kDownloadSubDir}/平台名/存储桶名/文件对象键',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
             const SizedBox(height: 16),

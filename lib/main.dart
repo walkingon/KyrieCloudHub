@@ -5,6 +5,7 @@ import 'screens/main_screen.dart';
 import 'services/cloud_platform_factory.dart';
 import 'services/storage_service.dart';
 import 'services/transfer_queue_service.dart';
+import 'utils/file_path_helper.dart';
 import 'utils/logger.dart';
 
 void main() async {
@@ -13,6 +14,9 @@ void main() async {
 
   // 初始化日志系统
   await logger.init();
+
+  // 初始化系统下载目录
+  await FilePathHelper.initSystemDownloadsDirectory();
 
   // 设置全局错误捕获
   FlutterError.onError = (details) {
