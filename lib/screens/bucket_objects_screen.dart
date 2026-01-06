@@ -75,6 +75,32 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     return parts;
   }
 
+  // 是否在子目录下
+  bool get _isInSubdirectory => _currentPrefix.isNotEmpty;
+
+  // 获取上一级目录的 prefix
+  String? get _parentPrefix {
+    if (!_isInSubdirectory) return null;
+    final segments = _pathSegments;
+    if (segments.length <= 1) return '';
+    // 移除最后一个分段
+    final parentSegments = segments.sublist(0, segments.length - 1);
+    return '${parentSegments.join('/')}/';
+  }
+
+  // 返回上一级目录
+  void _goToParentDirectory() {
+    final parent = _parentPrefix;
+    if (parent != null) {
+      logUi('Going to parent directory: $parent');
+      setState(() {
+        _currentPrefix = parent;
+        _currentPage = 1;
+      });
+      _refresh();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1751,24 +1777,37 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: _buildTitle(),
-        backgroundColor: widget.platform.color,
-        foregroundColor: Colors.white,
-        actions: [
-          if (!_isSelectionMode) _buildViewModeToggle(),
-          ..._buildSelectionActions(),
-        ],
-        leading: _isSelectionMode
-            ? IconButton(icon: const Icon(Icons.close), onPressed: _exitSelectionMode)
-            : IconButton(
-                icon: const Icon(Icons.arrow_back),
-                onPressed: () => Navigator.pop(context),
-                tooltip: '返回',
-              ),
-      ),
-      body: _buildBody(),
+    return PopScope(
+      canPop: !_isInSubdirectory,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _isInSubdirectory) {
+          _goToParentDirectory();
+        }
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: _buildTitle(),
+          backgroundColor: widget.platform.color,
+          foregroundColor: Colors.white,
+          actions: [
+            if (!_isSelectionMode) _buildViewModeToggle(),
+            ..._buildSelectionActions(),
+          ],
+          leading: _isSelectionMode
+              ? IconButton(icon: const Icon(Icons.close), onPressed: _exitSelectionMode)
+              : IconButton(
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: () {
+                    if (_isInSubdirectory) {
+                      _goToParentDirectory();
+                    } else {
+                      Navigator.pop(context);
+                    }
+                  },
+                  tooltip: _isInSubdirectory ? '返回上级' : '返回',
+                ),
+        ),
+        body: _buildBody(),
       floatingActionButton: _isSelectionMode
           ? null
           : Stack(
@@ -1794,6 +1833,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                   ),
               ],
             ),
+      ),
     );
   }
 
