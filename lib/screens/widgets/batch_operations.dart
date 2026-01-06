@@ -1,9 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../../models/object_file.dart';
-import '../../../../models/platform_type.dart';
 import '../../../../services/api/cloud_platform_api.dart';
-import '../../../../services/storage_service.dart';
 import '../../../../utils/logger.dart';
 
 /// 批量操作处理器
@@ -69,9 +67,6 @@ class BatchOperations {
     required String bucketName,
     required String region,
     required String downloadDirectory,
-    required PlatformType platform,
-    required StorageService storage,
-    required Set<String> downloadedFileKeys,
     required VoidCallback onComplete,
     required void Function(String error) onError,
   }) async {
@@ -135,13 +130,6 @@ class BatchOperations {
         continue;
       }
 
-      // 检查是否已记录为已下载
-      if (downloadedFileKeys.contains(obj.key)) {
-        logUi('File already in download record: ${obj.key}');
-        skipCount++;
-        continue;
-      }
-
       logUi('Downloading: ${obj.name} to $savePath');
 
       // 根据文件大小选择下载方式
@@ -176,13 +164,6 @@ class BatchOperations {
 
       if (result.success) {
         successCount++;
-        // 记录到已下载文件列表
-        await storage.addDownloadedFile(
-          platform.value,
-          bucketName,
-          obj.key,
-          savePath,
-        );
         logUi('Downloaded: ${obj.name} -> $savePath');
       } else {
         failCount++;

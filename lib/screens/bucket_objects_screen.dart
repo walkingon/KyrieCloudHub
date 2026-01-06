@@ -40,8 +40,8 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   late final StorageService _storage;
   late final CloudPlatformFactory _factory;
 
-  // 已下载文件记录
-  Set<String> _downloadedFileKeys = {};
+  // 本地文件记录（通过扫描本地目录获取）
+  Set<String> _localFileKeys = {};
 
   // 视图模式
   ViewMode _viewMode = ViewMode.list;
@@ -79,19 +79,45 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     logUi('BucketObjectsScreen initialized for bucket: ${widget.bucket.name}');
     _storage = Provider.of<StorageService>(context, listen: false);
     _factory = Provider.of<CloudPlatformFactory>(context, listen: false);
-    _loadDownloadedFiles();
+    _loadLocalFiles();
     _loadObjects(refresh: true);
   }
 
-  Future<void> _loadDownloadedFiles() async {
-    final downloaded = await _storage.getDownloadedFiles(
-      widget.platform.value,
-      widget.bucket.name,
-    );
+  Future<void> _loadLocalFiles() async {
+    // 获取下载根目录
+    final downloadRoot = await _getDownloadRootDirectory();
+    if (downloadRoot.isEmpty) {
+      setState(() {
+        _localFileKeys = {};
+      });
+      return;
+    }
+
+    // 构建当前存储桶的本地目录路径
+    final platformDir = widget.platform.displayName;
+    final bucketDir = '$downloadRoot/KyrieCloudHubDownload/$platformDir/${widget.bucket.name}';
+    final bucketDirectory = Directory(bucketDir);
+
+    // 扫描目录获取所有已下载的文件
+    final fileKeys = <String>{};
+    if (await bucketDirectory.exists()) {
+      await for (final entity in bucketDirectory.list(recursive: true)) {
+        if (entity is File) {
+          // 获取相对路径作为 objectKey
+          final relativePath = entity.path.substring(bucketDir.length);
+          // 移除开头的分隔符，并转换路径分隔符
+          final objectKey = relativePath
+              .replaceFirst(RegExp(r'^[/\\]+'), '')
+              .replaceAll(r'\', '/');
+          fileKeys.add(objectKey);
+        }
+      }
+    }
+
     setState(() {
-      _downloadedFileKeys = downloaded;
+      _localFileKeys = fileKeys;
     });
-    logUi('Loaded ${downloaded.length} downloaded file records');
+    logUi('Scanned local files: ${fileKeys.length} files found');
   }
 
   @override
@@ -893,33 +919,6 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       return;
     }
 
-    // 检查是否已记录为已下载（但文件可能被删除）
-    if (_downloadedFileKeys.contains(obj.key)) {
-      logUi('File already in download record: ${obj.key}');
-      if (!mounted) return;
-      final shouldRedownload = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('文件已下载过'),
-          content: Text('${obj.name} 之前已下载过，是否重新下载？'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('取消'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('重新下载'),
-            ),
-          ],
-        ),
-      );
-      if (!mounted) return;
-      if (shouldRedownload != true) {
-        return;
-      }
-    }
-
     final credential = await _storage.getCredential(widget.platform);
     if (credential == null) {
       logError('No credential found for platform: ${widget.platform}');
@@ -1017,15 +1016,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     if (downloadResult.success) {
       logUi('Download completed, file saved to: $fullPath');
 
-      // 记录到已下载文件列表
-      await _storage.addDownloadedFile(
-        widget.platform.value,
-        widget.bucket.name,
-        obj.key,
-        fullPath,
-      );
+      // 添加到本地文件记录
       setState(() {
-        _downloadedFileKeys.add(obj.key);
+        _localFileKeys.add(obj.key);
       });
 
       if (mounted) {
@@ -1177,14 +1170,8 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
         if (result.success) {
           downloadedCount++;
-          // 记录到已下载文件列表
-          await _storage.addDownloadedFile(
-            widget.platform.value,
-            widget.bucket.name,
-            obj.key,
-            savePath,
-          );
-          _downloadedFileKeys.add(obj.key);
+          // 添加到本地文件记录
+          _localFileKeys.add(obj.key);
         } else {
           failedCount++;
           logError('Failed to download: ${obj.name}');
@@ -1533,12 +1520,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       bucketName: widget.bucket.name,
       region: widget.bucket.region,
       downloadDirectory: downloadDirectory,
-      platform: widget.platform,
-      storage: _storage,
-      downloadedFileKeys: _downloadedFileKeys,
       onComplete: () {
         _exitSelectionMode();
-        _loadDownloadedFiles();
+        _loadLocalFiles();
       },
       onError: _showErrorSnackBar,
     );
@@ -1739,7 +1723,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           isSelected: isSelected,
           isSelectionMode: _isSelectionMode,
           isFolder: isFolder,
-          isDownloaded: !isFolder && _downloadedFileKeys.contains(obj.key),
+          isDownloaded: !isFolder && _localFileKeys.contains(obj.key),
           onTap: () {
             if (_isSelectionMode) {
               if (!isFolder) _toggleSelection(obj);
@@ -1782,7 +1766,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           isSelected: isSelected,
           isSelectionMode: _isSelectionMode,
           isFolder: isFolder,
-          isDownloaded: !isFolder && _downloadedFileKeys.contains(obj.key),
+          isDownloaded: !isFolder && _localFileKeys.contains(obj.key),
           onTap: () {
             if (_isSelectionMode) {
               if (!isFolder) _toggleSelection(obj);
