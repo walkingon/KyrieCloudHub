@@ -43,6 +43,7 @@ dependencies:
   file_picker: ^8.0.0
   android_path_provider: ^0.3.0
   open_file: ^3.5.4
+  package_info_plus: ^6.0.0
 
 dev_dependencies:
   flutter_test:
