@@ -32,10 +32,7 @@ class _AboutScreenState extends State<AboutScreen> {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('关于'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('关于'), centerTitle: true),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
@@ -73,11 +70,7 @@ class _AboutScreenState extends State<AboutScreen> {
           ),
         ],
       ),
-      child: Icon(
-        Icons.cloud,
-        size: 72,
-        color: colorScheme.onPrimaryContainer,
-      ),
+      child: Icon(Icons.cloud, size: 72, color: colorScheme.onPrimaryContainer),
     );
   }
 
@@ -157,11 +150,6 @@ class _AboutScreenState extends State<AboutScreen> {
         'title': '源代码',
         'url': 'https://github.com/walkingon/KyrieCloudHub',
       },
-      {
-        'icon': Icons.bug_report_outlined,
-        'title': '报告问题',
-        'url': 'https://github.com/walkingon/KyrieCloudHub/issues',
-      },
     ];
 
     return Column(
@@ -230,18 +218,32 @@ class _AboutScreenState extends State<AboutScreen> {
       children: [
         const SizedBox(height: 16),
         Text(
-          'Copyright © 2025 walkingon',
+          'Copyright © 2026 walkingon',
           style: TextStyle(
             fontSize: 13,
             color: Theme.of(context).colorScheme.onSurfaceVariant,
           ),
         ),
         const SizedBox(height: 8),
-        Text(
-          'All rights reserved',
-          style: TextStyle(
-            fontSize: 12,
-            color: Theme.of(context).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+        InkWell(
+          onTap: () => launchUrl(
+            Uri.parse(
+              'https://github.com/walkingon/KyrieCloudHub/blob/main/LICENSE',
+            ),
+          ),
+          borderRadius: BorderRadius.circular(4),
+          child: Text(
+            'Apache License 2.0',
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(
+                context,
+              ).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+              decoration: TextDecoration.underline,
+              decorationColor: Theme.of(
+                context,
+              ).colorScheme.onSurfaceVariant.withValues(alpha: 0.7),
+            ),
           ),
         ),
       ],
