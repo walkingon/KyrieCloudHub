@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/bucket.dart';
 import '../models/object_file.dart';
 import '../models/platform_type.dart';
@@ -556,6 +557,15 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         mainAxisSize: MainAxisSize.min,
         children: [
           ListTile(
+            leading: const Icon(Icons.open_in_new),
+            title: const Text('打开'),
+            onTap: () {
+              Navigator.pop(context);
+              logUi('User selected action: 打开 for ${obj.name}');
+              _openObject(obj);
+            },
+          ),
+          ListTile(
             leading: const Icon(Icons.download),
             title: const Text('下载'),
             onTap: () {
@@ -884,6 +894,186 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     );
 
     _refresh();
+  }
+
+  // ==================== 打开文件 ====================
+
+  Future<void> _openObject(ObjectFile obj) async {
+    logUi('Opening object: ${obj.name}');
+
+    // 获取下载根目录
+    final downloadRoot = await _getDownloadRootDirectory();
+    if (downloadRoot.isEmpty) {
+      _showErrorSnackBar('无法确定下载目录');
+      return;
+    }
+
+    // 构建完整文件路径
+    final platformDir = widget.platform.displayName;
+    final relativePath = _getRelativeDownloadPath(obj.key);
+    final fullPath = '$downloadRoot/KyrieCloudHubDownload/$platformDir/${widget.bucket.name}/$relativePath';
+    final saveFile = File(fullPath);
+
+    // 检查文件是否已存在
+    if (await saveFile.exists()) {
+      // 文件已存在，直接打开
+      logUi('File exists, opening: $fullPath');
+      await _openFileWithSystem(fullPath);
+    } else {
+      // 文件不存在，先下载再打开
+      logUi('File not exists, downloading first: $fullPath');
+      await _downloadAndOpen(obj, downloadRoot, platformDir, relativePath, saveFile);
+    }
+  }
+
+  Future<void> _downloadAndOpen(
+    ObjectFile obj,
+    String downloadRoot,
+    String platformDir,
+    String relativePath,
+    File saveFile,
+  ) async {
+    final credential = await _storage.getCredential(widget.platform);
+    if (credential == null) {
+      logError('No credential found for platform: ${widget.platform}');
+      _showErrorSnackBar('下载失败：未找到凭证');
+      return;
+    }
+
+    final api = _factory.createApi(widget.platform, credential: credential);
+    if (api == null) {
+      logError('Failed to create API for platform: ${widget.platform}');
+      _showErrorSnackBar('下载失败：API创建失败');
+      return;
+    }
+
+    int received = 0;
+    int total = obj.size > 0 ? obj.size : 1;
+    double progress = 0.0;
+    void Function(VoidCallback fn)? dialogSetState;
+
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setState) {
+            dialogSetState = setState;
+            return AlertDialog(
+              title: const Text('下载并打开中'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('正在下载: ${obj.name}', maxLines: 2),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: 200,
+                    child: LinearProgressIndicator(value: progress),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '${(progress * 100).toInt()}% (${_formatBytes(received)} / ${_formatBytes(total)})',
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    saveFile.parent.createSync(recursive: true);
+    final fullPath = saveFile.path;
+
+    final fileSize = obj.size;
+    const largeFileThreshold = 100 * 1024 * 1024; // 100MB
+    final isLargeFile = fileSize > largeFileThreshold;
+
+    ApiResponse<void> downloadResult;
+    if (isLargeFile) {
+      downloadResult = await api.downloadObjectMultipart(
+        bucketName: widget.bucket.name,
+        region: widget.bucket.region,
+        objectKey: obj.key,
+        outputFile: saveFile,
+        chunkSize: 64 * 1024 * 1024,
+        onProgress: (r, t) {
+          dialogSetState?.call(() {
+            received = r;
+            total = t > 0 ? t : 1;
+            progress = total > 0 ? r / total : 0.0;
+          });
+        },
+      );
+    } else {
+      downloadResult = await api.downloadObject(
+        bucketName: widget.bucket.name,
+        region: widget.bucket.region,
+        objectKey: obj.key,
+        outputFile: saveFile,
+        onProgress: (r, t) {
+          dialogSetState?.call(() {
+            received = r;
+            total = t > 0 ? t : 1;
+            progress = total > 0 ? r / total : 0.0;
+          });
+        },
+      );
+    }
+
+    if (!mounted) return;
+    Navigator.of(context).pop();
+
+    if (downloadResult.success) {
+      logUi('Download completed, opening: $fullPath');
+
+      // 添加到本地文件记录
+      setState(() {
+        _localFileKeys.add(obj.key);
+      });
+
+      await _openFileWithSystem(fullPath);
+    } else {
+      logError('Download failed: ${downloadResult.errorMessage}');
+      _showErrorSnackBar('下载失败: ${downloadResult.errorMessage}');
+    }
+  }
+
+  Future<void> _openFileWithSystem(String filePath) async {
+    final file = File(filePath);
+    if (!await file.exists()) {
+      _showErrorSnackBar('文件不存在: $filePath');
+      return;
+    }
+
+    try {
+      // 使用 url_launcher 打开本地文件（支持跨平台）
+      final Uri fileUri = Uri.file(filePath);
+      final canLaunch = await canLaunchUrl(fileUri);
+
+      if (canLaunch) {
+        await launchUrl(fileUri);
+        logUi('Successfully opened file: $filePath');
+      } else {
+        // 如果 url_launcher 无法打开，尝试直接启动进程
+        if (Platform.isWindows) {
+          await Process.start('cmd', ['/c', 'start', '', filePath]);
+          logUi('Opened file with Windows explorer: $filePath');
+        } else if (Platform.isMacOS) {
+          await Process.start('open', [filePath]);
+          logUi('Opened file with macOS open: $filePath');
+        } else if (Platform.isLinux) {
+          await Process.start('xdg-open', [filePath]);
+          logUi('Opened file with Linux xdg-open: $filePath');
+        } else {
+          _showErrorSnackBar('无法打开该类型的文件');
+        }
+      }
+    } catch (e) {
+      logError('Failed to open file: $e');
+      _showErrorSnackBar('打开文件失败: $e');
+    }
   }
 
   // ==================== 下载 ====================
