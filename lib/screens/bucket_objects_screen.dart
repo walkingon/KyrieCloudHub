@@ -40,6 +40,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   late final StorageService _storage;
   late final CloudPlatformFactory _factory;
 
+  // 已下载文件记录
+  Set<String> _downloadedFileKeys = {};
+
   // 视图模式
   ViewMode _viewMode = ViewMode.list;
 
@@ -76,7 +79,19 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     logUi('BucketObjectsScreen initialized for bucket: ${widget.bucket.name}');
     _storage = Provider.of<StorageService>(context, listen: false);
     _factory = Provider.of<CloudPlatformFactory>(context, listen: false);
+    _loadDownloadedFiles();
     _loadObjects(refresh: true);
+  }
+
+  Future<void> _loadDownloadedFiles() async {
+    final downloaded = await _storage.getDownloadedFiles(
+      widget.platform.value,
+      widget.bucket.name,
+    );
+    setState(() {
+      _downloadedFileKeys = downloaded;
+    });
+    logUi('Loaded ${downloaded.length} downloaded file records');
   }
 
   @override
@@ -84,6 +99,30 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     _clipboardFiles.clear();
     _isCutOperation = false;
     super.dispose();
+  }
+
+  // ==================== 下载目录辅助方法 ====================
+
+  Future<String> _getDownloadRootDirectory() async {
+    final customDir = await _storage.getDownloadDirectory();
+    if (customDir != null && customDir.isNotEmpty) {
+      return customDir;
+    }
+
+    // 默认使用系统下载目录
+    if (Platform.isWindows) {
+      final downloads = Platform.environment['USERPROFILE'];
+      return downloads != null ? '$downloads\\Downloads' : '';
+    } else if (Platform.isMacOS || Platform.isLinux) {
+      final home = Platform.environment['HOME'];
+      return home != null ? '$home/Downloads' : '';
+    }
+    return '';
+  }
+
+  String _getRelativeDownloadPath(String objectKey) {
+    // 将 objectKey 中的路径分隔符转换为适合本地系统的格式
+    return objectKey.split('/').where((e) => e.isNotEmpty).join('/');
   }
 
   // ==================== 数据加载 ====================
@@ -826,16 +865,60 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   Future<void> _downloadObject(ObjectFile obj) async {
     logUi('Starting download for: ${obj.name}');
 
-    final directoryPath = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: '选择保存位置',
-    );
-
-    if (directoryPath == null || directoryPath.isEmpty) {
-      logUi('User cancelled directory selection');
+    // 获取下载根目录
+    final downloadRoot = await _getDownloadRootDirectory();
+    if (downloadRoot.isEmpty) {
+      _showErrorSnackBar('无法确定下载目录');
       return;
     }
 
-    logUi('Selected directory: $directoryPath');
+    // 构建完整下载路径: 根目录/KyrieCloudHubDownload/平台名/存储桶名/文件对象键
+    final platformDir = widget.platform.displayName;
+    final relativePath = _getRelativeDownloadPath(obj.key);
+    final fullPath = '$downloadRoot/KyrieCloudHubDownload/$platformDir/${widget.bucket.name}/$relativePath';
+    final saveFile = File(fullPath);
+    saveFile.parent.createSync(recursive: true);
+
+    // 检查文件是否已存在
+    if (await saveFile.exists()) {
+      logUi('File already exists: $fullPath');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('文件已存在，无需重复下载: ${obj.name}'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    // 检查是否已记录为已下载（但文件可能被删除）
+    if (_downloadedFileKeys.contains(obj.key)) {
+      logUi('File already in download record: ${obj.key}');
+      if (!mounted) return;
+      final shouldRedownload = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('文件已下载过'),
+          content: Text('${obj.name} 之前已下载过，是否重新下载？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('取消'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('重新下载'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
+      if (shouldRedownload != true) {
+        return;
+      }
+    }
 
     final credential = await _storage.getCredential(widget.platform);
     if (credential == null) {
@@ -887,9 +970,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       },
     );
 
-    final savePath = '$directoryPath/${obj.name}';
-    final saveFile = File(savePath);
-    saveFile.parent.createSync(recursive: true);
+    logUi('Download path: $fullPath');
 
     final fileSize = obj.size;
     const largeFileThreshold = 100 * 1024 * 1024; // 100MB
@@ -934,11 +1015,23 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     Navigator.of(context).pop();
 
     if (downloadResult.success) {
-      logUi('Download completed, file saved to: $savePath');
+      logUi('Download completed, file saved to: $fullPath');
+
+      // 记录到已下载文件列表
+      await _storage.addDownloadedFile(
+        widget.platform.value,
+        widget.bucket.name,
+        obj.key,
+        fullPath,
+      );
+      setState(() {
+        _downloadedFileKeys.add(obj.key);
+      });
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('下载成功: ${obj.name}\n保存到: $savePath'),
+            content: Text('下载成功: ${obj.name}\n保存到: $fullPath'),
           ),
         );
       }
@@ -953,6 +1046,19 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
     logUi('Starting folder download for: ${folder.name}');
 
+    // 获取下载根目录
+    final downloadRoot = await _getDownloadRootDirectory();
+    if (downloadRoot.isEmpty) {
+      _showErrorSnackBar('无法确定下载目录');
+      return;
+    }
+
+    // 构建目录路径: 根目录/KyrieCloudHubDownload/平台名/存储桶名/文件夹名
+    final platformDir = widget.platform.displayName;
+    final directoryPath = '$downloadRoot/KyrieCloudHubDownload/$platformDir/${widget.bucket.name}';
+
+    logUi('Download directory: $directoryPath');
+
     final credential = await _storage.getCredential(widget.platform);
     if (credential == null) {
       _showErrorSnackBar('未找到登录凭证');
@@ -964,17 +1070,6 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       _showErrorSnackBar('API创建失败');
       return;
     }
-
-    final directoryPath = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: '选择保存位置',
-    );
-
-    if (directoryPath == null || directoryPath.isEmpty) {
-      logUi('User cancelled directory selection');
-      return;
-    }
-
-    logUi('Selected directory: $directoryPath');
 
     int dialogCurrent = 0;
     int dialogTotal = 0;
@@ -1081,10 +1176,24 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         );
 
         if (result.success) {
+          downloadedCount++;
+          // 记录到已下载文件列表
+          await _storage.addDownloadedFile(
+            widget.platform.value,
+            widget.bucket.name,
+            obj.key,
+            savePath,
+          );
+          _downloadedFileKeys.add(obj.key);
         } else {
           failedCount++;
           logError('Failed to download: ${obj.name}');
         }
+      }
+
+      // 更新已下载文件显示状态
+      if (downloadedCount > 0) {
+        setState(() {});
       }
 
       if (!mounted) return;
@@ -1393,6 +1502,17 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     if (selectedFiles.isEmpty) return;
     if (!mounted) return;
 
+    // 获取下载根目录
+    final downloadRoot = await _getDownloadRootDirectory();
+    if (downloadRoot.isEmpty) {
+      _showErrorSnackBar('无法确定下载目录');
+      return;
+    }
+
+    // 构建下载目录
+    final platformDir = widget.platform.displayName;
+    final downloadDirectory = '$downloadRoot/KyrieCloudHubDownload/$platformDir/${widget.bucket.name}';
+
     final credential = await _storage.getCredential(widget.platform);
     if (credential == null) {
       logError('No credential found for platform: ${widget.platform}');
@@ -1412,7 +1532,14 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       api: api,
       bucketName: widget.bucket.name,
       region: widget.bucket.region,
-      onComplete: _exitSelectionMode,
+      downloadDirectory: downloadDirectory,
+      platform: widget.platform,
+      storage: _storage,
+      downloadedFileKeys: _downloadedFileKeys,
+      onComplete: () {
+        _exitSelectionMode();
+        _loadDownloadedFiles();
+      },
       onError: _showErrorSnackBar,
     );
   }
@@ -1612,6 +1739,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           isSelected: isSelected,
           isSelectionMode: _isSelectionMode,
           isFolder: isFolder,
+          isDownloaded: !isFolder && _downloadedFileKeys.contains(obj.key),
           onTap: () {
             if (_isSelectionMode) {
               if (!isFolder) _toggleSelection(obj);
@@ -1654,6 +1782,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           isSelected: isSelected,
           isSelectionMode: _isSelectionMode,
           isFolder: isFolder,
+          isDownloaded: !isFolder && _downloadedFileKeys.contains(obj.key),
           onTap: () {
             if (_isSelectionMode) {
               if (!isFolder) _toggleSelection(obj);

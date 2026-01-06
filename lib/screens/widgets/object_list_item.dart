@@ -8,6 +8,7 @@ class ObjectListItem extends StatelessWidget {
   final bool isSelected;
   final bool isSelectionMode;
   final bool isFolder;
+  final bool isDownloaded;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
   final VoidCallback onCheckboxChanged;
@@ -18,6 +19,7 @@ class ObjectListItem extends StatelessWidget {
     required this.isSelected,
     required this.isSelectionMode,
     required this.isFolder,
+    this.isDownloaded = false,
     required this.onTap,
     required this.onLongPress,
     required this.onCheckboxChanged,
@@ -26,8 +28,18 @@ class ObjectListItem extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      leading: Icon(FileTypeHelper.getIcon(objectFile),
-          color: FileTypeHelper.getColor(objectFile)),
+      leading: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isDownloaded && !isFolder)
+            const Padding(
+              padding: EdgeInsets.only(right: 4),
+              child: Icon(Icons.check_circle, color: Colors.green, size: 20),
+            ),
+          Icon(FileTypeHelper.getIcon(objectFile),
+              color: FileTypeHelper.getColor(objectFile)),
+        ],
+      ),
       title:
           Text(objectFile.name, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: isFolder

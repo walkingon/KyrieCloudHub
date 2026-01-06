@@ -6,6 +6,8 @@ import '../models/platform_credential.dart';
 class StorageService {
   static const String _keyLastPlatform = 'last_platform';
   static const String _keyCredentialPrefix = 'credential_';
+  static const String _keyDownloadDirectory = 'download_directory';
+  static const String _keyDownloadedFiles = 'downloaded_files';
 
   Future<void> saveLastPlatform(PlatformType platformType) async {
     final prefs = await SharedPreferences.getInstance();
@@ -90,5 +92,60 @@ class StorageService {
         .where((key) => key.startsWith('transfer_task_'))
         .map((key) => key.replaceFirst('transfer_task_', ''))
         .toList();
+  }
+
+  // ==================== 下载目录设置 ====================
+
+  Future<void> saveDownloadDirectory(String directoryPath) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_keyDownloadDirectory, directoryPath);
+  }
+
+  Future<String?> getDownloadDirectory() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_keyDownloadDirectory);
+  }
+
+  Future<void> clearDownloadDirectory() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_keyDownloadDirectory);
+  }
+
+  // ==================== 已下载文件记录 ====================
+
+  Future<void> addDownloadedFile(String platform, String bucketName, String objectKey, String localPath) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = '${_keyDownloadedFiles}_${platform}_$bucketName';
+    final existing = prefs.getString(key);
+    Set<String> files = {};
+    if (existing != null) {
+      files = Set<String>.from(jsonDecode(existing));
+    }
+    files.add(objectKey);
+    await prefs.setString(key, jsonEncode(files.toList()));
+  }
+
+  Future<Set<String>> getDownloadedFiles(String platform, String bucketName) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = '${_keyDownloadedFiles}_${platform}_$bucketName';
+    final existing = prefs.getString(key);
+    if (existing == null) return {};
+    try {
+      final List<dynamic> list = jsonDecode(existing);
+      return Set<String>.from(list);
+    } catch (e) {
+      return {};
+    }
+  }
+
+  Future<void> removeDownloadedFile(String platform, String bucketName, String objectKey) async {
+    final prefs = await SharedPreferences.getInstance();
+    final key = '${_keyDownloadedFiles}_${platform}_$bucketName';
+    final existing = prefs.getString(key);
+    if (existing != null) {
+      final List<dynamic> list = jsonDecode(existing);
+      final updated = list.where((item) => item != objectKey).toList();
+      await prefs.setString(key, jsonEncode(updated));
+    }
   }
 }

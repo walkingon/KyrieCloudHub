@@ -1,8 +1,9 @@
 import 'dart:io';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import '../../../../models/object_file.dart';
+import '../../../../models/platform_type.dart';
 import '../../../../services/api/cloud_platform_api.dart';
+import '../../../../services/storage_service.dart';
 import '../../../../utils/logger.dart';
 
 /// 批量操作处理器
@@ -67,6 +68,10 @@ class BatchOperations {
     required ICloudPlatformApi api,
     required String bucketName,
     required String region,
+    required String downloadDirectory,
+    required PlatformType platform,
+    required StorageService storage,
+    required Set<String> downloadedFileKeys,
     required VoidCallback onComplete,
     required void Function(String error) onError,
   }) async {
@@ -74,19 +79,8 @@ class BatchOperations {
 
     logUi('Batch download: ${selectedFiles.length} files');
 
-    // 让用户选择保存目录
-    final directoryPath = await FilePicker.platform.getDirectoryPath(
-      dialogTitle: '选择保存位置',
-    );
-
-    if (directoryPath == null || directoryPath.isEmpty) {
-      logUi('User cancelled directory selection');
-      return;
-    }
-
-    logUi('Selected directory: $directoryPath');
-
     int successCount = 0;
+    int skipCount = 0;
     int failCount = 0;
 
     // 显示进度对话框
@@ -128,10 +122,27 @@ class BatchOperations {
       currentFile = obj.name;
       currentIndex++;
 
-      logUi('Downloading: ${obj.name}');
-      final savePath = '$directoryPath/${obj.name}';
+      // 构建保存路径
+      final relativePath = obj.key.split('/').where((e) => e.isNotEmpty).join('/');
+      final savePath = '$downloadDirectory/$relativePath';
       final saveFile = File(savePath);
       saveFile.parent.createSync(recursive: true);
+
+      // 检查文件是否已存在
+      if (await saveFile.exists()) {
+        logUi('File already exists, skipping: $savePath');
+        skipCount++;
+        continue;
+      }
+
+      // 检查是否已记录为已下载
+      if (downloadedFileKeys.contains(obj.key)) {
+        logUi('File already in download record: ${obj.key}');
+        skipCount++;
+        continue;
+      }
+
+      logUi('Downloading: ${obj.name} to $savePath');
 
       // 根据文件大小选择下载方式
       final fileSize = obj.size;
@@ -165,6 +176,13 @@ class BatchOperations {
 
       if (result.success) {
         successCount++;
+        // 记录到已下载文件列表
+        await storage.addDownloadedFile(
+          platform.value,
+          bucketName,
+          obj.key,
+          savePath,
+        );
         logUi('Downloaded: ${obj.name} -> $savePath');
       } else {
         failCount++;
@@ -178,7 +196,7 @@ class BatchOperations {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '成功下载 $successCount 个文件${failCount > 0 ? '，$failCount 个失败' : ''}',
+            '成功下载 $successCount 个文件${skipCount > 0 ? '，跳过 $skipCount 个已存在' : ''}${failCount > 0 ? '，失败 $failCount 个' : ''}',
           ),
         ),
       );
