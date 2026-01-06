@@ -59,6 +59,16 @@ class BatchOperations {
     onSuccess();
   }
 
+  /// 格式化字节大小
+  static String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+  }
+
   /// 批量下载
   static Future<void> batchDownload({
     required BuildContext context,
@@ -81,6 +91,11 @@ class BatchOperations {
     // 显示进度对话框
     int currentIndex = 0;
     String currentFile = '';
+    int currentFileReceived = 0;
+    int currentFileTotal = 0;
+
+    // 用于更新进度对话框的回调
+    void Function(VoidCallback fn)? setDialogState;
 
     if (!context.mounted) return;
     showDialog(
@@ -89,6 +104,9 @@ class BatchOperations {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
+            setDialogState = setState;
+            // 当前文件的进度
+            final fileProgress = currentFileTotal > 0 ? currentFileReceived / currentFileTotal : 0.0;
             return AlertDialog(
               title: const Text('批量下载中'),
               content: Column(
@@ -99,11 +117,13 @@ class BatchOperations {
                   SizedBox(
                     width: 200,
                     child: LinearProgressIndicator(
-                      value: currentIndex / selectedFiles.length,
+                      value: fileProgress,
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Text('$currentIndex/${selectedFiles.length}'),
+                  Text('${_formatBytes(currentFileReceived)} / ${_formatBytes(currentFileTotal)} (${(fileProgress * 100).toInt()}%)'),
+                  const SizedBox(height: 4),
+                  Text('$currentIndex/${selectedFiles.length}', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                 ],
               ),
             );
@@ -112,10 +132,26 @@ class BatchOperations {
       },
     );
 
+    // 进度更新函数
+    void updateProgress(int received) {
+      if (setDialogState != null) {
+        setDialogState!(() {
+          currentFileReceived = received;
+        });
+      }
+    }
+
     // 逐个下载文件
     for (final obj in selectedFiles) {
       currentFile = obj.name;
-      currentIndex++;
+      currentFileReceived = 0;
+      currentFileTotal = obj.size;
+      currentIndex++; // 先增加索引，表示正在处理第几个文件
+
+      // 更新UI显示新文件信息
+      if (setDialogState != null) {
+        setDialogState!(() {});
+      }
 
       // 构建保存路径
       final relativePath = obj.key.split('/').where((e) => e.isNotEmpty).join('/');
@@ -149,7 +185,10 @@ class BatchOperations {
           objectKey: obj.key,
           outputFile: saveFile,
           chunkSize: 64 * 1024 * 1024, // 64MB 分块
-          onProgress: (r, t) {},
+          onProgress: (received, total) {
+            currentFileTotal = total > 0 ? total : obj.size;
+            updateProgress(received);
+          },
         );
       } else {
         // 小文件使用普通下载
@@ -158,7 +197,10 @@ class BatchOperations {
           region: region,
           objectKey: obj.key,
           outputFile: saveFile,
-          onProgress: (r, t) {},
+          onProgress: (received, total) {
+            currentFileTotal = total > 0 ? total : obj.size;
+            updateProgress(received);
+          },
         );
       }
 
