@@ -2,9 +2,10 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:android_path_provider/android_path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:open_file/open_file.dart';
 import '../models/bucket.dart';
 import '../models/object_file.dart';
 import '../models/platform_type.dart';
@@ -143,6 +144,15 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     } else if (Platform.isMacOS || Platform.isLinux) {
       final home = Platform.environment['HOME'];
       return home != null ? '$home/Downloads' : '';
+    } else if (Platform.isAndroid || Platform.isIOS) {
+      // Android/iOS: 使用公共外部存储的 Downloads 目录
+      // 注意：返回基础目录，下载时会自动添加 KyrieCloudHubDownload/
+      try {
+        return await AndroidPathProvider.downloadsPath;
+      } catch (e) {
+        logError('Failed to get Downloads directory: $e');
+        return '';
+      }
     }
     return '';
   }
@@ -1048,27 +1058,15 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     }
 
     try {
-      // 使用 url_launcher 打开本地文件（支持跨平台）
-      final Uri fileUri = Uri.file(filePath);
-      final canLaunch = await canLaunchUrl(fileUri);
-
-      if (canLaunch) {
-        await launchUrl(fileUri);
+      final result = await OpenFile.open(filePath);
+      if (result.type == ResultType.done) {
         logUi('Successfully opened file: $filePath');
+      } else if (result.type == ResultType.noAppToOpen) {
+        _showErrorSnackBar('没有找到可以打开该文件的应用');
+      } else if (result.type == ResultType.permissionDenied) {
+        _showErrorSnackBar('没有权限打开该文件');
       } else {
-        // 如果 url_launcher 无法打开，尝试直接启动进程
-        if (Platform.isWindows) {
-          await Process.start('cmd', ['/c', 'start', '', filePath]);
-          logUi('Opened file with Windows explorer: $filePath');
-        } else if (Platform.isMacOS) {
-          await Process.start('open', [filePath]);
-          logUi('Opened file with macOS open: $filePath');
-        } else if (Platform.isLinux) {
-          await Process.start('xdg-open', [filePath]);
-          logUi('Opened file with Linux xdg-open: $filePath');
-        } else {
-          _showErrorSnackBar('无法打开该类型的文件');
-        }
+        _showErrorSnackBar('打开文件失败: ${result.message}');
       }
     } catch (e) {
       logError('Failed to open file: $e');

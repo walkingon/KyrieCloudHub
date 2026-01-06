@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:android_path_provider/android_path_provider.dart';
+import 'package:path_provider/path_provider.dart' as path_provider;
 import 'package:file_picker/file_picker.dart';
 import '../services/storage_service.dart';
 import '../utils/logger.dart';
@@ -48,6 +49,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } else if (Platform.isMacOS || Platform.isLinux) {
       final home = Platform.environment['HOME'];
       return home != null ? '$home/Downloads' : '';
+    } else if (Platform.isAndroid || Platform.isIOS) {
+      // Android/iOS: 同步方法无法直接获取，需要返回空字符串让异步方法处理
+      return '';
     }
     return '';
   }
@@ -115,7 +119,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
 
     // 如果获取不到，返回应用数据目录下的默认路径
-    final directory = await getApplicationSupportDirectory();
+    final directory = await path_provider.getApplicationSupportDirectory();
     return directory.path;
   }
 
@@ -130,6 +134,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return '${Platform.environment['HOME']}/Downloads';
     } else if (Platform.isLinux) {
       return '${Platform.environment['HOME']}/Downloads';
+    } else if (Platform.isAndroid || Platform.isIOS) {
+      // Android/iOS: 使用公共外部存储的 Downloads 目录
+      // 注意：返回基础目录，显示时会自动添加 KyrieCloudHubDownload/
+      try {
+        return await AndroidPathProvider.downloadsPath;
+      } catch (e) {
+        logError('Failed to get Downloads directory: $e');
+        return null;
+      }
     }
     return null;
   }
