@@ -1,9 +1,9 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:android_path_provider/android_path_provider.dart';
 import 'package:path_provider/path_provider.dart' as path_provider;
 import 'package:file_picker/file_picker.dart';
 import '../services/storage_service.dart';
+import '../utils/file_path_helper.dart';
 import '../utils/logger.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -32,28 +32,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
-  /// 获取当前显示的下载根目录（带 KyrieCloudHubDownload 后缀）
+  /// 获取当前显示的下载根目录（带 FilePathHelper.kDownloadSubDir 后缀）
   String get _displayDownloadRoot {
     if (_downloadDirectory.isEmpty) {
       // 返回默认目录
-      final defaultDir = _getDefaultDownloadDirectorySync();
-      return '$defaultDir/KyrieCloudHubDownload/';
+      final defaultDir = FilePathHelper.getSystemDownloadsDirectorySync();
+      return '$defaultDir/${FilePathHelper.kDownloadSubDir}/';
     }
-    return '$_downloadDirectory/KyrieCloudHubDownload/';
-  }
-
-  String _getDefaultDownloadDirectorySync() {
-    if (Platform.isWindows) {
-      final downloads = Platform.environment['USERPROFILE'];
-      return downloads != null ? '$downloads\\Downloads' : '';
-    } else if (Platform.isMacOS || Platform.isLinux) {
-      final home = Platform.environment['HOME'];
-      return home != null ? '$home/Downloads' : '';
-    } else if (Platform.isAndroid || Platform.isIOS) {
-      // Android/iOS: 同步方法无法直接获取，需要返回空字符串让异步方法处理
-      return '';
-    }
-    return '';
+    return '$_downloadDirectory/${FilePathHelper.kDownloadSubDir}/';
   }
 
   Future<void> _selectDownloadDirectory() async {
@@ -91,9 +77,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('下载目录已设置为: $directoryPath')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('下载目录已设置为: $directoryPath')));
     }
   }
 
@@ -105,9 +91,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('已重置为默认下载目录: $defaultDirectory')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('已重置为默认下载目录: $defaultDirectory')));
     }
   }
 
@@ -125,26 +111,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   // 辅助方法：获取系统下载目录路径
   Future<String?> getDownloadsDirectoryPath() async {
-    if (Platform.isWindows) {
-      // Windows: 使用环境变量
-      return Platform.environment['USERPROFILE'] != null
-          ? '${Platform.environment['USERPROFILE']}\\Downloads'
-          : null;
-    } else if (Platform.isMacOS) {
-      return '${Platform.environment['HOME']}/Downloads';
-    } else if (Platform.isLinux) {
-      return '${Platform.environment['HOME']}/Downloads';
-    } else if (Platform.isAndroid || Platform.isIOS) {
-      // Android/iOS: 使用公共外部存储的 Downloads 目录
-      // 注意：返回基础目录，显示时会自动添加 KyrieCloudHubDownload/
-      try {
-        return await AndroidPathProvider.downloadsPath;
-      } catch (e) {
-        logError('Failed to get Downloads directory: $e');
-        return null;
-      }
-    }
-    return null;
+    return FilePathHelper.getSystemDownloadsDirectory();
   }
 
   @override
@@ -178,10 +145,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 SizedBox(width: 8),
                 Text(
                   '下载设置',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -206,7 +170,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              '实际下载路径: 下载目录/KyrieCloudHubDownload/平台名/存储桶名/文件对象键',
+              '文件存储路径: 下载/${FilePathHelper.kDownloadSubDir}/平台名/存储桶名/文件对象键',
               style: TextStyle(fontSize: 12, color: Colors.grey),
             ),
             const SizedBox(height: 16),
@@ -247,10 +211,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 SizedBox(width: 8),
                 Text(
                   '说明',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                 ),
               ],
             ),

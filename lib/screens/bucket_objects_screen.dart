@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import 'package:android_path_provider/android_path_provider.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:open_file/open_file.dart';
@@ -12,6 +11,7 @@ import '../models/platform_type.dart';
 import '../services/api/cloud_platform_api.dart';
 import '../services/cloud_platform_factory.dart';
 import '../services/storage_service.dart';
+import '../utils/file_path_helper.dart';
 import '../utils/logger.dart';
 import 'widgets/export.dart';
 
@@ -96,8 +96,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     }
 
     // 构建当前存储桶的本地目录路径
-    final platformDir = widget.platform.displayName;
-    final bucketDir = '$downloadRoot/KyrieCloudHubDownload/$platformDir/${widget.bucket.name}';
+    final bucketDir = FilePathHelper.buildBucketLocalPath(
+      downloadRoot: downloadRoot,
+      platformName: widget.platform.displayName,
+      bucketName: widget.bucket.name,
+    );
     final bucketDirectory = Directory(bucketDir);
 
     // 扫描目录获取所有已下载的文件
@@ -136,30 +139,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     if (customDir != null && customDir.isNotEmpty) {
       return customDir;
     }
-
     // 默认使用系统下载目录
-    if (Platform.isWindows) {
-      final downloads = Platform.environment['USERPROFILE'];
-      return downloads != null ? '$downloads\\Downloads' : '';
-    } else if (Platform.isMacOS || Platform.isLinux) {
-      final home = Platform.environment['HOME'];
-      return home != null ? '$home/Downloads' : '';
-    } else if (Platform.isAndroid || Platform.isIOS) {
-      // Android/iOS: 使用公共外部存储的 Downloads 目录
-      // 注意：返回基础目录，下载时会自动添加 KyrieCloudHubDownload/
-      try {
-        return await AndroidPathProvider.downloadsPath;
-      } catch (e) {
-        logError('Failed to get Downloads directory: $e');
-        return '';
-      }
-    }
-    return '';
-  }
-
-  String _getRelativeDownloadPath(String objectKey) {
-    // 将 objectKey 中的路径分隔符转换为适合本地系统的格式
-    return objectKey.split('/').where((e) => e.isNotEmpty).join('/');
+    final systemDir = await FilePathHelper.getSystemDownloadsDirectory();
+    return systemDir ?? '';
   }
 
   // ==================== 数据加载 ====================
@@ -919,9 +901,12 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     }
 
     // 构建完整文件路径
-    final platformDir = widget.platform.displayName;
-    final relativePath = _getRelativeDownloadPath(obj.key);
-    final fullPath = '$downloadRoot/KyrieCloudHubDownload/$platformDir/${widget.bucket.name}/$relativePath';
+    final fullPath = FilePathHelper.buildLocalFilePath(
+      downloadRoot: downloadRoot,
+      platformName: widget.platform.displayName,
+      bucketName: widget.bucket.name,
+      objectKey: obj.key,
+    );
     final saveFile = File(fullPath);
 
     // 检查文件是否已存在
@@ -932,15 +917,12 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     } else {
       // 文件不存在，先下载再打开
       logUi('File not exists, downloading first: $fullPath');
-      await _downloadAndOpen(obj, downloadRoot, platformDir, relativePath, saveFile);
+      await _downloadAndOpen(obj, saveFile);
     }
   }
 
   Future<void> _downloadAndOpen(
     ObjectFile obj,
-    String downloadRoot,
-    String platformDir,
-    String relativePath,
     File saveFile,
   ) async {
     final credential = await _storage.getCredential(widget.platform);
@@ -1086,10 +1068,13 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       return;
     }
 
-    // 构建完整下载路径: 根目录/KyrieCloudHubDownload/平台名/存储桶名/文件对象键
-    final platformDir = widget.platform.displayName;
-    final relativePath = _getRelativeDownloadPath(obj.key);
-    final fullPath = '$downloadRoot/KyrieCloudHubDownload/$platformDir/${widget.bucket.name}/$relativePath';
+    // 构建完整下载路径
+    final fullPath = FilePathHelper.buildLocalFilePath(
+      downloadRoot: downloadRoot,
+      platformName: widget.platform.displayName,
+      bucketName: widget.bucket.name,
+      objectKey: obj.key,
+    );
     final saveFile = File(fullPath);
     saveFile.parent.createSync(recursive: true);
 
@@ -1234,9 +1219,12 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       return;
     }
 
-    // 构建目录路径: 根目录/KyrieCloudHubDownload/平台名/存储桶名/文件夹名
-    final platformDir = widget.platform.displayName;
-    final directoryPath = '$downloadRoot/KyrieCloudHubDownload/$platformDir/${widget.bucket.name}';
+    // 构建目录路径
+    final directoryPath = FilePathHelper.buildBucketLocalPath(
+      downloadRoot: downloadRoot,
+      platformName: widget.platform.displayName,
+      bucketName: widget.bucket.name,
+    );
 
     logUi('Download directory: $directoryPath');
 
@@ -1685,8 +1673,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     }
 
     // 构建下载目录
-    final platformDir = widget.platform.displayName;
-    final downloadDirectory = '$downloadRoot/KyrieCloudHubDownload/$platformDir/${widget.bucket.name}';
+    final downloadDirectory = FilePathHelper.buildBucketLocalPath(
+      downloadRoot: downloadRoot,
+      platformName: widget.platform.displayName,
+      bucketName: widget.bucket.name,
+    );
 
     final credential = await _storage.getCredential(widget.platform);
     if (credential == null) {
