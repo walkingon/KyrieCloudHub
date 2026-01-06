@@ -60,39 +60,6 @@ class StorageService {
     return credential != null;
   }
 
-  Future<void> saveTransferTask(String taskId, Map<String, dynamic> taskData) async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = 'transfer_task_$taskId';
-    await prefs.setString(key, jsonEncode(taskData));
-  }
-
-  Future<Map<String, dynamic>?> getTransferTask(String taskId) async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = 'transfer_task_$taskId';
-    final jsonString = prefs.getString(key);
-    if (jsonString == null) return null;
-    try {
-      return jsonDecode(jsonString);
-    } catch (e) {
-      return null;
-    }
-  }
-
-  Future<void> clearTransferTask(String taskId) async {
-    final prefs = await SharedPreferences.getInstance();
-    final key = 'transfer_task_$taskId';
-    await prefs.remove(key);
-  }
-
-  Future<List<String>> getAllTransferTaskIds() async {
-    final prefs = await SharedPreferences.getInstance();
-    final keys = prefs.getKeys();
-    return keys
-        .where((key) => key.startsWith('transfer_task_'))
-        .map((key) => key.replaceFirst('transfer_task_', ''))
-        .toList();
-  }
-
   // ==================== 下载目录设置 ====================
 
   Future<void> saveDownloadDirectory(String directoryPath) async {

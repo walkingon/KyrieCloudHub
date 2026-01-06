@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 import 'screens/main_screen.dart';
 import 'services/cloud_platform_factory.dart';
 import 'services/storage_service.dart';
-import 'services/transfer_queue_service.dart';
 import 'utils/file_path_helper.dart';
 import 'utils/logger.dart';
 
@@ -44,9 +43,6 @@ class MyApp extends StatelessWidget {
         Provider<StorageService>(create: (_) => StorageService()),
         Provider<CloudPlatformFactory>(
           create: (_) => CloudPlatformFactory(),
-        ),
-        ChangeNotifierProvider<TransferQueueService>(
-          create: (_) => TransferQueueService(),
         ),
       ],
       child: MaterialApp(

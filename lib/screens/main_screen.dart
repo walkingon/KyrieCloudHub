@@ -6,7 +6,6 @@ import '../services/cloud_platform_factory.dart';
 import '../services/storage_service.dart';
 import '../utils/logger.dart';
 import 'platform_selection_screen.dart';
-import 'transfer_queue_screen.dart';
 import 'settings_screen.dart';
 import 'about_screen.dart';
 import 'bucket_objects_screen.dart';
@@ -163,19 +162,6 @@ class _MainScreenState extends State<MainScreen> {
                   logUi('PlatformSelectionScreen returned, calling _refreshCurrentPlatform');
                   _refreshCurrentPlatform();
                 });
-              },
-            ),
-            ListTile(
-              leading: Icon(Icons.queue),
-              title: Text('传输队列'),
-              onTap: () {
-                logUi('User tapped: 传输队列');
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => TransferQueueScreen(),
-                  ),
-                );
               },
             ),
             ListTile(
