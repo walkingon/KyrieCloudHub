@@ -178,6 +178,19 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      - name: Decode keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_FILE }}" | base64 -d > android/app/kyrie-release.keystore
+        shell: bash
+
+      - name: Create signing properties
+        run: |
+          echo "storeFile=kyrie-release.keystore" >> android/key.properties
+          echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}" >> android/key.properties
+          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> android/key.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> android/key.properties
+        shell: bash
+
       - name: Build Android APK
         run: flutter build apk --release --build-number=${{ needs.get-version.outputs.build-number }}
 
