@@ -1,4 +1,4 @@
-package com.example.kyrie_cloud_hub
+package com.walkingon.kyriecloudhub
 
 import io.flutter.embedding.android.FlutterActivity
 

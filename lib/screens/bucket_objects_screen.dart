@@ -4,7 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
-import 'package:open_file/open_file.dart';
+import 'package:open_filex/open_filex.dart';
 import '../models/bucket.dart';
 import '../models/object_file.dart';
 import '../models/platform_type.dart';
@@ -1065,7 +1065,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     }
 
     try {
-      final result = await OpenFile.open(filePath);
+      final result = await OpenFilex.open(filePath);
       if (result.type == ResultType.done) {
         logUi('Successfully opened file: $filePath');
       } else if (result.type == ResultType.noAppToOpen) {

@@ -68,7 +68,7 @@ KyrieCloudHub 是一款跨平台云盘管理客户端，致力于为用户提供
 | **Provider** | 状态管理 |
 | **Shared Preferences** | 本地数据持久化 |
 | **file_picker** | 文件选择器 |
-| **open_file_plus** | 文件打开 |
+| **open_filex** | 文件打开 |
 
 ## 安装指南
 
