@@ -57,20 +57,10 @@ class _AboutScreenState extends State<AboutScreen> {
   }
 
   Widget _buildAppIcon(ColorScheme colorScheme) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: colorScheme.primaryContainer,
-        boxShadow: [
-          BoxShadow(
-            color: colorScheme.primary.withValues(alpha: 0.3),
-            blurRadius: 20,
-            spreadRadius: 5,
-          ),
-        ],
-      ),
-      child: Icon(Icons.cloud, size: 72, color: colorScheme.onPrimaryContainer),
+    return Image.asset(
+      'assets/images/ic_launcher.png',
+      width: 96,
+      height: 96,
     );
   }
 

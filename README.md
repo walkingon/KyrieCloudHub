@@ -2,6 +2,8 @@
 
 <div align="center">
 
+<img src="assets/images/ic_launcher.png" alt="KyrieCloudHub Icon" width="128" />
+
 [![Flutter](https://img.shields.io/badge/Flutter-3.10+-02569B?style=flat-square&logo=flutter)](https://flutter.dev)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green?style=flat-square)](LICENSE)
 [![GitHub Stars](https://img.shields.io/github/stars/walkingon/KyrieCloudHub?style=flat-square)](https://github.com/walkingon/KyrieCloudHub/stargazers)
