@@ -1,117 +1,195 @@
 # KyrieCloudHub
 
-## 应用概述
+<div align="center">
 
-KyrieCloudHub是一款使用Flutter技术开发的，跨平台（Windows、Android、Linux等）支持多种云服务厂商（腾讯云、阿里云等）对象存储服务的聚合网盘服务客户端，该应用旨在为用户提供一种拥有独立控制权限的私有云盘服务。
+[![Flutter](https://img.shields.io/badge/Flutter-3.10+-02569B?style=flat-square&logo=flutter)](https://flutter.dev)
+[![License](https://img.shields.io/badge/License-Apache%202.0-green?style=flat-square)](LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/walkingon/KyrieCloudHub?style=flat-square)](https://github.com/walkingon/KyrieCloudHub/stargazers)
 
-## 核心功能
+一款使用 Flutter 开发的跨平台云盘管理客户端，支持腾讯云 COS 和阿里云 OSS 对象存储服务。
 
-*说明：因各家云服务厂商对同一种服务的产品命名不同，如腾讯云中的对象存储COS与阿里云中的OSS，我们后文均以腾讯云产品及概念为例。*
+</div>
 
-### 1.账号登录
+## 📋 目录
 
-登录平台账号获取安全凭证是一切云盘文件操作的前提，当前应用提供以访问密钥（SecretID + SecretKey）的方式进行平台登录。密钥需要用户在官方开发平台自行创建获取。
+- [简介](#简介)
+- [功能特性](#功能特性)
+- [技术栈](#技术栈)
+- [安装指南](#安装指南)
+- [使用说明](#使用说明)
+- [项目结构](#项目结构)
+- [贡献指南](#贡献指南)
+- [开源协议](#开源协议)
 
-应用目前支持登录的平台有：腾讯云、阿里云
+## 简介
 
-### 2.查看存储桶列表
+KyrieCloudHub 是一款跨平台云盘管理客户端，致力于为用户提供统一管理腾讯云 COS 和阿里云 OSS 对象存储服务的便捷体验。通过简洁直观的界面，您可以轻松管理云端文件，享受安全高效的云存储服务。
 
-存储桶是文件存储的容器和载体，用户登录平台账号后，自动查询并列出存储桶列表。（出于文件安全考虑，应用不提供存储桶的创建和删除功能，用户在平台自行创建管理存储桶）
+## 功能特性
 
-### 3.存储桶内文件管理
+### 🔐 账号管理
+- 支持腾讯云、阿里云两大平台
+- 使用访问密钥（SecretID + SecretKey）认证
+- 自动保存/加载登录凭证
+- 安全的登出功能
 
-- 查看存储桶内文件列表
+### 📁 存储桶管理
+- 列出所有存储桶
+- 支持列表/网格视图切换
+- 存储桶浏览与导航
 
-- 文件（批量）的下载
+### 📄 文件管理
+- 查看对象文件列表（支持分页）
+- 文件夹导航（路径导航面包屑）
+- 文件排序（名称、时间）
+- 创建文件夹
+- 上传文件（支持批量选择）
+- 下载文件（支持分块下载）
+- 打开本地文件
+- 删除文件/文件夹
+- 重命名文件/文件夹
+- 复制/移动文件
 
-- 文件（批量）的删除
+### ⚡ 批量操作
+- 批量下载
+- 批量删除
 
-- 文件（批量）的上传
+### ⚙️ 设置功能
+- 自定义下载目录
+- 目录写入权限检查
+- 重置为默认目录
 
-## 用户界面交互流程
+## 技术栈
 
-### 1.主界面
+| 技术 | 说明 |
+|------|------|
+| **Flutter** | 跨平台 UI 框架 |
+| **Dio** | HTTP 客户端 |
+| **Provider** | 状态管理 |
+| **Shared Preferences** | 本地数据持久化 |
+| **file_picker** | 文件选择器 |
+| **open_file** | 文件打开 |
 
-主界面左侧为抽屉栏，子菜单依次为“平台切换”、“传输队列”、“设置”、“关于”。顶部AppBar水平居中显示为当前使用的平台名称，如“腾讯云”、“阿里云”或空内容（未选择平台时）
+## 安装指南
 
-- 当用户为新用户，即应用本地没有查询到用户上一次登录的平台记录时，顶部AppBar显示空标题，界面中心显示一个“去选择平台”按钮，点击后进入平台选择界面。
+### 环境要求
 
-- 当应用本地有用户上一次登录记录时，顶部AppBar显示平台名称，主界面列出查询到的存储桶列表。
+- Flutter SDK 3.10+
+- Dart SDK ^3.10.1
+- Android / Windows / Linux
 
-*说明：登录概念只是方便用户理解。因该应用的功能是基于云厂商平台提供的无状态的HTTP请求API，并不存在实际的登录协议，应用内部对登录动作的处理实际上只做登录信息的本地存储*
+### 安装步骤
 
-### 2.左侧抽屉栏
+1. 克隆项目：
+   ```bash
+   git clone https://github.com/walkingon/KyrieCloudHub.git
+   cd KyrieCloudHub
+   ```
 
-用户点击左侧抽屉栏，展开子菜单"平台切换"、"设置"、"关于"。
+2. 安装依赖：
+   ```bash
+   flutter pub get
+   ```
 
-- 选择"平台切换"，进入平台选择界面
+3. 运行应用：
+   ```bash
+   flutter run
+   ```
 
-    - 平台选择界面列出可供选择的平台选项：“腾讯云”、“阿里云”。选项需显示登录状态（即是否有上一次登录成功的记录）。如对于有上一次登录成功记录的选项，选项中显示一个绿色对号的状态图标。对于有绿色对号状态的选项，选项后额外提供一个“登出”的按钮，点击该登出按钮后清理登录记录并刷新选项显示状态。
-    - 当用户点击选择的平台选项为未登录状态（即用户从未使用该平台选项登录成功过），则弹出登录对话框。
+4. 构建发布版：
+   ```bash
+   # Windows
+   flutter build windows
 
-        - 登录对话框显示需要输入的登录信息有：SecretID、SecretKey。用户输入全部信息后可点击“登录”按钮进行登录，或关闭该对话框以取消登录。
-        - 用户点击登录后，应用返回主界面，刷新界面显示AppBar标题，并使用记录的登录信息查询存储桶列表，若查询成功则将该登录密钥记为登录成功，并刷新存储桶列表显示。
-        - 若查询存储桶列表数据失败，给出界面提示错误原因，根据响应状态码判断若是密钥有误，则清理记录的登录密钥。
+   # Android
+   flutter build apk
 
-    - 当用户点击选择的平台选项有上一次登录成功记录，则直接使用上一次登录密钥进行登录，并返回主界面刷新相关内容显示。
+   # Linux
+   flutter build linux
+   ```
 
-- 选择"设置"，进入设置界面
+## 使用说明
 
-    - 下载设置
-        - 显示当前下载根目录路径
-        - 支持选择自定义下载目录
-        - 支持重置为默认下载目录
-        - 下载目录检查写入权限，无权限则提示
-        - 默认下载路径：系统下载目录/KyrieCloudHubDownload/
-        - 自定义下载路径：用户选择目录/KyrieCloudHubDownload/
+### 获取云平台凭证
 
-- 选择"关于"，进入关于界面
+#### 腾讯云 COS
+1. 登录 [腾讯云控制台](https://console.cloud.tencent.com/)
+2. 进入「访问管理」→「访问密钥」→「API 密钥管理」
+3. 创建密钥，获取 SecretID 和 SecretKey
 
-    - 显示内容
-        - 应用图标（暂时用临时图片占位）
-        - Copyright [2025] [walkingon]
-        - GitHub链接地址（点击后可使用外部浏览器打开）：https://github.com/walkingon/KyrieCloudHub
+#### 阿里云 OSS
+1. 登录 [阿里云控制台](https://home.console.aliyun.com/)
+2. 进入「RAM 访问控制」→「用户管理」
+3. 创建用户或使用已有用户，获取 AccessKey
 
-### 3.主界面列表视图
+### 快速开始
 
-主界面列表视图是主界面内的主体内容，其以资源文件浏览器的形式显示存储桶列表或资源列表，支持“列表”和“网格”两种视图模式切换。
+1. 启动应用后，选择登录平台（腾讯云/阿里云）
+2. 输入 SecretID 和 SecretKey 进行登录
+3. 登录成功后即可查看和管理存储桶
+4. 在设置中配置下载目录
 
-- 列表视图上方显示为当前文件路径，路径左侧为返回上一级按钮，路径右侧为视图切换滑动块。
-- 列表右下方显示页码信息以及前后翻页的按钮。
-- 当列表内容显示为存储桶列表时
+## 项目结构
 
-    - 路径显示为根路径“/”
-    - 点击存储桶列表可进入存储桶内对象文件列表。
+```
+kyrie_cloud_hub/
+├── lib/
+│   ├── main.dart              # 应用入口
+│   ├── models/                # 数据模型层
+│   │   ├── bucket.dart        # 存储桶模型
+│   │   ├── object_file.dart   # 对象/文件模型
+│   │   ├── platform_type.dart # 平台类型枚举
+│   │   └── platform_credential.dart # 平台凭证模型
+│   ├── screens/               # 界面层
+│   │   ├── main_screen.dart           # 主界面
+│   │   ├── bucket_objects_screen.dart # 对象文件列表
+│   │   ├── platform_selection_screen.dart # 平台选择
+│   │   ├── login_dialog.dart          # 登录对话框
+│   │   ├── settings_screen.dart       # 设置界面
+│   │   ├── about_screen.dart          # 关于界面
+│   │   └── widgets/                   # 共享组件
+│   ├── services/              # 服务层
+│   │   ├── storage_service.dart        # 本地存储服务
+│   │   ├── cloud_platform_factory.dart # 平台工厂
+│   │   └── api/                        # API 实现
+│   │       ├── cloud_platform_api.dart  # API 抽象接口
+│   │       ├── tencent_cos_api.dart     # 腾讯云 COS 实现
+│   │       ├── ali_yun_oss_api.dart     # 阿里云 OSS 实现
+│   │       └── aliyun/                  # 阿里云签名/分块
+│   │           └── tencent/             # 腾讯云签名/分块
+│   └── utils/                 # 工具类
+│       ├── logger.dart        # 日志系统
+│       ├── file_path_helper.dart     # 文件路径辅助
+│       ├── file_type_helper.dart     # 文件类型辅助
+│       ├── file_chunk_reader.dart    # 文件分块读取
+│       └── progress_dialog.dart      # 进度对话框
+├── pubspec.yaml
+├── analysis_options.yaml
+└── README.md
+```
 
-- 当列表内容显示为对象文件列表时
+## 贡献指南
 
-    - 路径显示为当前“目录”路径
-    - 目录路径后显示加号按钮
+欢迎提交 Issue 和 Pull Request！
 
-        - 点击该加号，显示选项“上传文件”、“新建文件夹”
+1. Fork 本项目
+2. 创建分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启 Pull Request
 
-            - 当用户选择上传文件
+## 开源协议
 
-               - 弹出操作系统的文件选择器，支持用户选择多个文件批量上传
-               - 文件上传到存储桶的当前路径
+本项目基于 Apache License 2.0 开源协议，详见 [LICENSE](LICENSE) 文件。
 
-            - 当用户选择“新建文件夹”
+## 致谢
 
-               - 需要用户输入文件夹名称，点击创建文件
-
-    - 对象文件显示形式为图标、文件名（含扩展名）、创建时间
-    - 已下载到本地的文件显示绿色勾选标识
-    - 点击对象图标或名称，显示该对象文件的可操作选项
-
-        - 打开：本地已存在则直接打开，不存在则先下载再打开
-        - 下载：进行该文件的下载
-        - 删除：删除该对象文件
-
-    - 文件下载规则
-        - 下载路径：下载目录/KyrieCloudHubDownload/平台名/存储桶名/文件对象键
-        - 若本地已存在该文件，跳过下载并提示
-        - 文件删除后重新进入目录会自动更新显示状态
+感谢所有为这个项目做出贡献的人！
 
 ---
 
-## [技术架构](技术架构.md)
+<div align="center">
+
+如果本项目对您有帮助，欢迎点亮 Star ⭐
+
+</div>
