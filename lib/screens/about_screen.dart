@@ -123,14 +123,9 @@ class _AboutScreenState extends State<AboutScreen> {
       ),
       child: Column(
         children: [
-          Icon(
-            Icons.info_outline_rounded,
-            size: 32,
-            color: Theme.of(context).colorScheme.primary,
-          ),
           const SizedBox(height: 12),
           Text(
-            '一款简洁高效的云盘管理工具',
+            '跨平台云盘管理客户端，支持腾讯云 COS 和阿里云 OSS 对象存储服务。',
             style: TextStyle(
               fontSize: 16,
               color: Theme.of(context).colorScheme.onSurfaceVariant,
