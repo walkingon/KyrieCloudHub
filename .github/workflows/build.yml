@@ -36,14 +36,14 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.4'
+          flutter-version: '3.38.5'
           channel: 'stable'
 
       - name: Get Version Info
         id: version
         run: |
           $VERSION = (Select-String -Path pubspec.yaml -Pattern '^version:').Line -replace 'version: *' -replace '\+.*' | ForEach-Object { $_.Trim() }
-          $BUILD_NUMBER = (Select-String -Path pubspec.yaml -Pattern '^version:').Line -replace '.*+' | ForEach-Object { $_.Trim() }
+          $BUILD_NUMBER = (Select-String -Path pubspec.yaml -Pattern '^version:').Line -replace '.*\+' | ForEach-Object { $_.Trim() }
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "build-number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
           echo "Version: $VERSION, Build: $BUILD_NUMBER"
@@ -79,7 +79,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.4'
+          flutter-version: '3.38.5'
           channel: 'stable'
 
       - name: Get Version Info
@@ -122,7 +122,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.4'
+          flutter-version: '3.38.5'
           channel: 'stable'
 
       - name: Get Version Info
@@ -164,7 +164,7 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.4'
+          flutter-version: '3.38.5'
           channel: 'stable'
 
       - name: Get Version Info
