@@ -1,0 +1,225 @@
+name: Build Release Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  get-version:
+    name: Get Version Info
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build-number: ${{ steps.version.outputs.build-number }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version from pubspec.yaml
+        id: version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | sed 's/+.*//' | xargs)
+          BUILD_NUMBER=$(grep '^version:' pubspec.yaml | sed 's/.*+//' | xargs)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "build-number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION, Build: $BUILD_NUMBER"
+
+  build-windows:
+    name: Build Windows
+    needs: get-version
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.4'
+          channel: 'stable'
+
+      - name: Get Version Info
+        id: version
+        run: |
+          $VERSION = (Select-String -Path pubspec.yaml -Pattern '^version:').Line -replace 'version: *' -replace '\+.*' | ForEach-Object { $_.Trim() }
+          $BUILD_NUMBER = (Select-String -Path pubspec.yaml -Pattern '^version:').Line -replace '.*+' | ForEach-Object { $_.Trim() }
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "build-number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION, Build: $BUILD_NUMBER"
+        shell: powershell
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows Release
+        run: flutter build windows --release --build-number=${{ needs.get-version.outputs.build-number }}
+
+      - name: Rename output
+        run: |
+          $VERSION = "${{ needs.get-version.outputs.version }}"
+          $ARCHIVE_NAME = "kyrie_cloud_hub_windows_${VERSION}.zip"
+          Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath $ARCHIVE_NAME
+          echo "artifact_name=$ARCHIVE_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-release
+          path: ${{ steps.rename.outputs.artifact_name }}
+
+  build-macos:
+    name: Build macOS
+    needs: get-version
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.4'
+          channel: 'stable'
+
+      - name: Get Version Info
+        id: version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | sed 's/+.*//' | xargs)
+          BUILD_NUMBER=$(grep '^version:' pubspec.yaml | sed 's/.*+//' | xargs)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "build-number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build macOS Release
+        run: flutter build macos --release --build-number=${{ needs.get-version.outputs.build-number }}
+
+      - name: Rename output
+        run: |
+          VERSION="${{ needs.get-version.outputs.version }}"
+          ARCHIVE_NAME="kyrie_cloud_hub_macos_${VERSION}.zip"
+          cd build/macos/Build/Products/Release
+          zip -r "$ARCHIVE_NAME" kyrie_cloud_hub.app
+          mv "$ARCHIVE_NAME" $GITHUB_WORKSPACE/
+          echo "artifact_name=$ARCHIVE_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-release
+          path: ${{ steps.rename.outputs.artifact_name }}
+
+  build-linux:
+    name: Build Linux
+    needs: get-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.4'
+          channel: 'stable'
+
+      - name: Get Version Info
+        id: version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | sed 's/+.*//' | xargs)
+          BUILD_NUMBER=$(grep '^version:' pubspec.yaml | sed 's/.*+//' | xargs)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "build-number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Linux Release
+        run: flutter build linux --release --build-number=${{ needs.get-version.outputs.build-number }}
+
+      - name: Rename output
+        run: |
+          VERSION="${{ needs.get-version.outputs.version }}"
+          ARCHIVE_NAME="kyrie_cloud_hub_linux_${VERSION}.tar.gz"
+          tar -czf "$ARCHIVE_NAME" -C build/linux/x64/release/bundle .
+          mv "$ARCHIVE_NAME" $GITHUB_WORKSPACE/
+          echo "artifact_name=$ARCHIVE_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-release
+          path: ${{ steps.rename.outputs.artifact_name }}
+
+  build-android:
+    name: Build Android
+    needs: get-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.4'
+          channel: 'stable'
+
+      - name: Get Version Info
+        id: version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//' | sed 's/+.*//' | xargs)
+          BUILD_NUMBER=$(grep '^version:' pubspec.yaml | sed 's/.*+//' | xargs)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "build-number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Android APK
+        run: flutter build apk --release --build-number=${{ needs.get-version.outputs.build-number }}
+
+      - name: Rename output
+        run: |
+          VERSION="${{ needs.get-version.outputs.version }}"
+          ARCHIVE_NAME="kyrie_cloud_hub_android_${VERSION}.apk"
+          mv build/app/outputs/flutter-apk/app-release.apk "$ARCHIVE_NAME"
+          echo "artifact_name=$ARCHIVE_NAME" >> $GITHUB_OUTPUT
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release
+          path: ${{ steps.rename.outputs.artifact_name }}
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build-windows, build-macos, build-linux, build-android]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.zip
+          artifacts: artifacts/**/*.apk,artifacts/**/*.tar.gz
+          draft: false
+          prerelease: false
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          body: |
+            Automated release build for Kyrie Cloud Hub ${{ github.ref_name }}
+
+            ## Built Packages:
+            - Windows (zip)
+            - macOS (zip)
+            - Linux (tar.gz)
+            - Android (apk)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
