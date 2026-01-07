@@ -10,6 +10,8 @@
 
 一款使用 Flutter 开发的跨平台云盘管理客户端，支持腾讯云 COS 和阿里云 OSS 对象存储服务。
 
+### [前往下载](https://github.com/walkingon/KyrieCloudHub/releases)
+
 </div>
 
 ## 📋 目录
