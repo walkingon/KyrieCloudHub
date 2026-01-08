@@ -29,12 +29,8 @@
 KyrieCloudHub 是一款跨平台云盘管理客户端，致力于为用户提供统一管理腾讯云 COS 和阿里云 OSS 对象存储服务的便捷体验。通过简洁直观的界面，您可以轻松管理云端文件，享受安全高效的云存储服务。
 
 <div align="center">
-
-<img src="RES/desktop_1.jpg" alt="桌面端界面" width="60%" />
-
-<img src="RES/mobile_1.jpg" alt="移动端界面1" width="30%" />
 <img src="RES/mobile_2.jpg" alt="移动端界面2" width="30%" />
-
+<img src="RES/desktop_1.jpg" alt="桌面端界面" width="60%" />
 </div>
 
 ## 功能特性
