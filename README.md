@@ -6,7 +6,6 @@
 
 [![Flutter](https://img.shields.io/badge/Flutter-3.10+-02569B?style=flat-square&logo=flutter)](https://flutter.dev)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green?style=flat-square)](LICENSE)
-[![GitHub Stars](https://img.shields.io/github/stars/walkingon/KyrieCloudHub?style=flat-square)](https://github.com/walkingon/KyrieCloudHub/stargazers)
 
 一款使用 Flutter 开发的跨平台云盘管理客户端，支持腾讯云 COS 和阿里云 OSS 对象存储服务。
 
@@ -188,7 +187,7 @@ kyrie_cloud_hub/
 
 ## 致谢
 
-感谢所有为这个项目做出贡献的人！
+感谢所有为这个项目做出贡献的人和AI！
 
 ---
 
