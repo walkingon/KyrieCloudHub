@@ -8,6 +8,7 @@ import 'package:dio/dio.dart';
 import 'package:xml/xml.dart';
 
 import '../../../models/platform_credential.dart';
+import '../../../models/storage_class.dart';
 import '../../../services/api/cloud_platform_api.dart';
 import '../../../utils/logger.dart';
 import '../../../utils/file_chunk_reader.dart';
@@ -56,6 +57,7 @@ class AliyunMultipartUploadManager {
   final String region;
   final String objectKey;
   final int chunkSize;
+  final StorageClass? storageClass;
 
   /// 上传任务ID
   String? uploadId;
@@ -150,6 +152,7 @@ class AliyunMultipartUploadManager {
     required this.region,
     required this.objectKey,
     this.chunkSize = FileChunkReader.defaultChunkSize,
+    this.storageClass,
   });
 
   /// 更新状态
@@ -197,13 +200,22 @@ class AliyunMultipartUploadManager {
   Future<bool> initiate() async {
     try {
       _setStatus(AliyunMultipartUploadStatus.initiating);
-      log('[AliyunMultipartUploadManager] 开始初始化分块上传: $objectKey');
+      log('[AliyunMultipartUploadManager] 开始初始化分块上传: $objectKey, storageClass: ${storageClass?.name ?? 'standard'}');
+
+      // 构建签名时需要的额外头部
+      final extraHeaders = {'Content-Type': 'application/xml'};
+
+      // 添加存储类型（如果不是默认的标准存储）
+      if (storageClass != null && storageClass != StorageClass.standard) {
+        extraHeaders['x-oss-storage-class'] = storageClass!.aliyunValue;
+        log('[AliyunMultipartUploadManager] 设置存储类型: ${storageClass!.aliyunValue}');
+      }
 
       // 签名时需要包含 Content-Type（阿里云V4签名要求）
       final signature = await _generateSignature(
         method: 'POST',
         objectKey: objectKey,
-        extraHeaders: {'Content-Type': 'application/xml'},
+        extraHeaders: extraHeaders,
         queryParams: {'uploads': ''},
       );
 
@@ -219,6 +231,11 @@ class AliyunMultipartUploadManager {
         'x-oss-content-sha256': 'UNSIGNED-PAYLOAD',
         'host': _host,
       };
+
+      // 添加存储类型到请求头
+      if (storageClass != null && storageClass != StorageClass.standard) {
+        headers['x-oss-storage-class'] = storageClass!.aliyunValue;
+      }
 
       final url = 'https://$_host/${_encodePath(objectKey)}?uploads';
       final response = await dio.post(

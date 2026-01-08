@@ -45,6 +45,9 @@ KyrieCloudHub 是一款跨平台云盘管理客户端，致力于为用户提供
 - 列出所有存储桶
 - 支持列表/网格视图切换
 - 存储桶浏览与导航
+- **存储类型设置（长按存储桶配置）**
+  - 腾讯云：标准存储、低频存储、归档存储、深度归档存储、智能分层
+  - 阿里云：标准存储、低频存储、归档存储、冷归档存储、深度冷归档存储
 
 ### 📄 文件管理
 - 查看对象文件列表（支持分页）
@@ -147,7 +150,8 @@ kyrie_cloud_hub/
 │   │   ├── bucket.dart        # 存储桶模型
 │   │   ├── object_file.dart   # 对象/文件模型
 │   │   ├── platform_type.dart # 平台类型枚举
-│   │   └── platform_credential.dart # 平台凭证模型
+│   │   ├── platform_credential.dart # 平台凭证模型
+│   │   └── storage_class.dart # 存储类型枚举
 │   ├── screens/               # 界面层
 │   │   ├── main_screen.dart           # 主界面
 │   │   ├── bucket_objects_screen.dart # 对象文件列表

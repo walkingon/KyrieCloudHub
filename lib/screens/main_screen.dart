@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/bucket.dart';
 import '../models/platform_type.dart';
+import '../models/storage_class.dart';
 import '../services/cloud_platform_factory.dart';
 import '../services/storage_service.dart';
 import '../utils/logger.dart';
@@ -262,6 +263,7 @@ class _MainScreenState extends State<MainScreen> {
           },
           onLongPress: () {
             logUi('User long pressed bucket: ${bucket.name}');
+            _showStorageClassDialog(bucket);
           },
         );
       },
@@ -296,6 +298,7 @@ class _MainScreenState extends State<MainScreen> {
           },
           onLongPress: () {
             logUi('User long pressed bucket: ${bucket.name}');
+            _showStorageClassDialog(bucket);
           },
           child: Container(
             decoration: BoxDecoration(
@@ -336,6 +339,172 @@ class _MainScreenState extends State<MainScreen> {
         );
       },
     );
+  }
+
+  /// 显示存储类型选择对话框
+  void _showStorageClassDialog(Bucket bucket) {
+    final storage = Provider.of<StorageService>(context, listen: false);
+
+    showModalBottomSheet(
+      context: context,
+      builder: (context) => FutureBuilder<StorageClass?>(
+        future: storage.getBucketStorageClass(_currentPlatform!, bucket.name),
+        builder: (context, snapshot) {
+          final currentClass = snapshot.data;
+          return SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '设置存储类型',
+                        style:
+                            TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        '仅对后续上传对象有效',
+                        style: TextStyle(fontSize: 11, color: Colors.grey),
+                      ),
+                    ],
+                  ),
+                ),
+                Text(
+                  '存储桶: ${bucket.name}',
+                  style: TextStyle(color: Colors.grey),
+                ),
+                SizedBox(height: 8),
+                if (snapshot.connectionState == ConnectionState.waiting)
+                  CircularProgressIndicator()
+                else
+                  ..._buildStorageClassOptions(
+                    context,
+                    bucket,
+                    currentClass ?? StorageClass.standard,
+                    storage,
+                  ),
+                SizedBox(height: 16),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  /// 构建存储类型选项列表
+  List<Widget> _buildStorageClassOptions(
+    BuildContext context,
+    Bucket bucket,
+    StorageClass currentClass,
+    StorageService storage,
+  ) {
+    final isTencent = _currentPlatform!.value == 'tencent';
+
+    // 根据平台过滤可用的存储类型
+    final availableClasses = isTencent
+        ? [
+            StorageClass.standard,
+            StorageClass.standardIa,
+            StorageClass.archive,
+            StorageClass.deepArchive,
+            StorageClass.intelligentTiering,
+          ]
+        : [
+            StorageClass.standard,
+            StorageClass.standardIa,
+            StorageClass.archive,
+            StorageClass.coldArchive,
+            StorageClass.deepColdArchive,
+          ];
+
+    return availableClasses.map((sc) {
+      final isSelected = sc == currentClass;
+      return ListTile(
+        leading: Icon(
+          isSelected ? Icons.check_circle : Icons.circle_outlined,
+          color: isSelected ? Colors.blue : Colors.grey,
+        ),
+        title: Text(sc.displayName),
+        subtitle: isTencent
+            ? Text(_getTencentStorageDesc(sc))
+            : Text(_getAliyunStorageDesc(sc)),
+        selected: isSelected,
+        selectedTileColor: Colors.blue.withValues(alpha: 0.1),
+        onTap: () async {
+          if (isSelected) {
+            Navigator.pop(context);
+            return;
+          }
+          await storage.setBucketStorageClass(
+            _currentPlatform!,
+            bucket.name,
+            sc,
+          );
+          if (!mounted) return;
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('已设置为 ${sc.displayName}')),
+          );
+          setState(() {});
+        },
+      );
+    }).toList()
+      ..add(
+        ListTile(
+          leading: Icon(Icons.delete_outline, color: Colors.red),
+          title: Text('清除设置'),
+          onTap: () async {
+            await storage.clearBucketStorageClass(_currentPlatform!, bucket.name);
+            if (!mounted) return;
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('已清除存储类型设置')),
+            );
+            setState(() {});
+          },
+        ),
+      );
+  }
+
+  /// 获取腾讯云存储类型描述
+  String _getTencentStorageDesc(StorageClass sc) {
+    switch (sc) {
+      case StorageClass.standard:
+        return '默认类型，适合频繁访问的数据';
+      case StorageClass.standardIa:
+        return '低频存储，适合较少访问的数据';
+      case StorageClass.archive:
+        return '归档存储，适合长期保存的数据';
+      case StorageClass.deepArchive:
+        return '深度归档存储，适合极少访问的数据';
+      case StorageClass.intelligentTiering:
+        return '智能分层，自动降冷以节省成本';
+      default:
+        return '';
+    }
+  }
+
+  /// 获取阿里云存储类型描述
+  String _getAliyunStorageDesc(StorageClass sc) {
+    switch (sc) {
+      case StorageClass.standard:
+        return '默认类型，适合频繁访问的数据';
+      case StorageClass.standardIa:
+        return '低频存储，适合较少访问的数据';
+      case StorageClass.archive:
+        return '归档存储，适合长期保存的数据';
+      case StorageClass.coldArchive:
+        return '冷归档存储，适合超长期保存';
+      case StorageClass.deepColdArchive:
+        return '深度冷归档存储，适合合规存档';
+      default:
+        return '';
+    }
   }
 
   /// 根据屏幕宽度获取网格列数

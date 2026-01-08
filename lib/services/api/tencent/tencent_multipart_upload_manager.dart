@@ -8,6 +8,7 @@ import 'package:dio/dio.dart';
 import 'package:xml/xml.dart';
 
 import '../../../models/platform_credential.dart';
+import '../../../models/storage_class.dart';
 import '../../../services/api/cloud_platform_api.dart';
 import '../../../utils/logger.dart';
 import '../../../utils/file_chunk_reader.dart';
@@ -68,6 +69,7 @@ class TencentMultipartUploadManager {
   final String region;
   final String objectKey;
   final int chunkSize;
+  final StorageClass? storageClass;
 
   /// 上传任务ID
   String? uploadId;
@@ -114,6 +116,7 @@ class TencentMultipartUploadManager {
     required this.region,
     required this.objectKey,
     this.chunkSize = FileChunkReader.defaultChunkSize,
+    this.storageClass,
   });
 
   /// 获取请求主机
@@ -132,7 +135,7 @@ class TencentMultipartUploadManager {
   Future<bool> initiate() async {
     try {
       _setStatus(MultipartUploadStatus.initiating);
-      log('[TencentMultipartUploadManager] 开始初始化分块上传: $objectKey');
+      log('[TencentMultipartUploadManager] 开始初始化分块上传: $objectKey, storageClass: ${storageClass?.name ?? 'standard'}');
 
       if (getSignature == null) {
         throw Exception('签名方法未设置，请传入 getSignature 回调');
@@ -145,6 +148,7 @@ class TencentMultipartUploadManager {
       // q-url-param-list 只需要参数名，不需要编码
       final urlParamList = 'uploads';
 
+      // 构建请求头
       final headers = {
         'Authorization':
             'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$now;$end&q-key-time=$now;$end&q-header-list=date;host&q-url-param-list=$urlParamList&q-signature=$signature',
@@ -152,6 +156,12 @@ class TencentMultipartUploadManager {
         'Content-Type': 'application/octet-stream',
         'Date': HttpDate.format(DateTime.now().toUtc()),
       };
+
+      // 添加存储类型（如果不是默认的标准存储）
+      if (storageClass != null && storageClass != StorageClass.standard) {
+        headers['x-cos-storage-class'] = storageClass!.tencentValue;
+        log('[TencentMultipartUploadManager] 设置存储类型: ${storageClass!.tencentValue}');
+      }
 
       final url = 'https://$_host/$objectKey?uploads';
       final response = await dio.post(url, data: [], options: Options(headers: headers));

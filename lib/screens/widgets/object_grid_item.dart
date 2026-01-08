@@ -69,7 +69,7 @@ class ObjectGridItem extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.only(top: 4),
                     child: Text(
-                      _formatBytes(objectFile.size),
+                      _buildSizeText(),
                       style: const TextStyle(fontSize: 10, color: Colors.grey),
                     ),
                   ),
@@ -100,6 +100,15 @@ class ObjectGridItem extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// 构建大小文本：显示大小和非标准存储类型
+  String _buildSizeText() {
+    final parts = <String>[_formatBytes(objectFile.size)];
+    if (objectFile.shouldShowStorageClass) {
+      parts.add(objectFile.storageClass!.displayName);
+    }
+    return parts.join(' ');
   }
 
   String _formatBytes(int bytes) {

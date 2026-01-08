@@ -2,6 +2,7 @@ import 'dart:io';
 
 import '../../models/bucket.dart';
 import '../../models/object_file.dart';
+import '../../models/storage_class.dart';
 
 /// 默认分块大小 (64MB)
 const int kDefaultChunkSize = 64 * 1024 * 1024;
@@ -55,6 +56,7 @@ abstract class ICloudPlatformApi {
     required String objectKey,
     required List<int> data,
     void Function(int sent, int total)? onProgress,
+    StorageClass? storageClass,
   });
 
   /// 分块上传文件
@@ -66,6 +68,7 @@ abstract class ICloudPlatformApi {
   /// [chunkSize] 分块大小 (字节), 默认 kDefaultChunkSize
   /// [onProgress] 进度回调 (已上传字节数, 总字节数)
   /// [onStatusChanged] 状态变更回调
+  /// [storageClass] 存储类型（默认使用标准存储）
   Future<ApiResponse<void>> uploadObjectMultipart({
     required String bucketName,
     required String region,
@@ -74,6 +77,7 @@ abstract class ICloudPlatformApi {
     int chunkSize = kDefaultChunkSize,
     void Function(int sent, int total)? onProgress,
     void Function(int status)? onStatusChanged,
+    StorageClass? storageClass,
   });
 
   /// 下载对象

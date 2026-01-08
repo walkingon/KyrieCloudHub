@@ -1549,6 +1549,13 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       return;
     }
 
+    // 获取存储桶的存储类型配置
+    final storageClass = await _storage.getBucketStorageClass(
+      widget.platform,
+      widget.bucket.name,
+    );
+    logUi('Upload storageClass: ${storageClass?.name ?? 'standard'}');
+
     int currentIndex = 0;
     String currentFile = '';
     double currentProgress = 0.0;
@@ -1614,6 +1621,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           objectKey: objectKey,
           file: File(pickedFile.path!),
           chunkSize: 64 * 1024 * 1024,
+          storageClass: storageClass,
           onProgress: (sent, total) {
             dialogSetState?.call(() {
               currentProgress = total > 0 ? sent / total : 0.0;
@@ -1637,6 +1645,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           region: widget.bucket.region,
           objectKey: objectKey,
           data: fileBytes,
+          storageClass: storageClass,
           onProgress: (sent, total) {
             dialogSetState?.call(() {
               currentProgress = total > 0 ? sent / total : 0.0;

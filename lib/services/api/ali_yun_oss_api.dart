@@ -7,6 +7,7 @@ import 'package:xml/xml.dart';
 import '../../models/bucket.dart';
 import '../../models/object_file.dart';
 import '../../models/platform_credential.dart';
+import '../../models/storage_class.dart';
 import '../../utils/logger.dart';
 import 'cloud_platform_api.dart';
 import 'aliyun/aliyun_signature_generator.dart';
@@ -460,6 +461,16 @@ class AliyunOssApi implements ICloudPlatformApi {
         final sizeStr = content.findElements('Size').first.innerText;
         final etag = content.findElements('ETag').first.innerText;
 
+        // 解析存储类型（可能不存在，默认标准存储）
+        StorageClass storageClass;
+        try {
+          final storageClassStr =
+              content.findElements('StorageClass').first.innerText;
+          storageClass = StorageClass.fromAliyunValue(storageClassStr);
+        } catch (e) {
+          storageClass = StorageClass.standard;
+        }
+
         DateTime? lastModified;
         try {
           lastModified = DateTime.parse(lastModifiedStr);
@@ -488,6 +499,7 @@ class AliyunOssApi implements ICloudPlatformApi {
             lastModified: lastModified,
             etag: etag.replaceAll('"', ''),
             type: isFolder ? ObjectType.folder : ObjectType.file,
+            storageClass: isFolder ? null : storageClass,
           ),
         );
       }
@@ -545,12 +557,13 @@ class AliyunOssApi implements ICloudPlatformApi {
     required String objectKey,
     required List<int> data,
     void Function(int sent, int total)? onProgress,
+    StorageClass? storageClass,
   }) async {
     try {
       final host = _getEndpoint(bucketName);
       final url = 'https://$host/${_encodePath(objectKey)}';
 
-      log('[AliyunOSS] 开始上传对象: $objectKey');
+      log('[AliyunOSS] 开始上传对象: $objectKey, storageClass: ${storageClass?.name ?? 'standard'}');
 
       // 计算Content-MD5
       final md5Hash = md5.convert(data);
@@ -570,6 +583,12 @@ class AliyunOssApi implements ICloudPlatformApi {
         'x-oss-content-sha256': 'UNSIGNED-PAYLOAD', // 阿里云V4签名要求
         'host': _getEndpoint(bucketName),
       };
+
+      // 添加存储类型（如果不是默认的标准存储）
+      if (storageClass != null && storageClass != StorageClass.standard) {
+        headers['x-oss-storage-class'] = storageClass.aliyunValue;
+        log('[AliyunOSS] 设置存储类型: ${storageClass.aliyunValue}');
+      }
 
       // 生成签名
       final signature = _getSignatureV4(
@@ -1265,9 +1284,10 @@ class AliyunOssApi implements ICloudPlatformApi {
     int chunkSize = kDefaultChunkSize,
     void Function(int sent, int total)? onProgress,
     void Function(int status)? onStatusChanged,
+    StorageClass? storageClass,
   }) async {
     try {
-      log('[AliyunOSS] 开始分块上传: ${file.path} -> $objectKey');
+      log('[AliyunOSS] 开始分块上传: ${file.path} -> $objectKey, storageClass: ${storageClass?.name ?? 'standard'}');
 
       // 创建分片上传管理器
       final uploadManager = AliyunMultipartUploadManager(
@@ -1277,6 +1297,7 @@ class AliyunOssApi implements ICloudPlatformApi {
         region: region,
         objectKey: objectKey,
         chunkSize: chunkSize,
+        storageClass: storageClass,
       );
 
       // 设置签名方法（包装为异步）

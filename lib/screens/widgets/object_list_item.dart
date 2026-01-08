@@ -44,9 +44,7 @@ class ObjectListItem extends StatelessWidget {
           Text(objectFile.name, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: isFolder
           ? null
-          : Text(
-              '${_formatBytes(objectFile.size)} • ${_formatDate(objectFile.lastModified)}',
-            ),
+          : _buildSubtitle(),
       selected: isSelected,
       selectedTileColor: Colors.blue.withValues(alpha: 0.1),
       trailing: isFolder
@@ -57,6 +55,28 @@ class ObjectListItem extends StatelessWidget {
             ),
       onTap: onTap,
       onLongPress: onLongPress,
+    );
+  }
+
+  /// 构建副标题：显示大小、日期和非标准存储类型
+  Widget _buildSubtitle() {
+    final parts = <String>[
+      _formatBytes(objectFile.size),
+      _formatDate(objectFile.lastModified),
+    ];
+
+    // 非标准存储显示存储类型
+    if (objectFile.shouldShowStorageClass) {
+      parts.add(objectFile.storageClass!.displayName);
+    }
+
+    return Text(
+      parts.join(' • '),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: objectFile.shouldShowStorageClass ? Colors.grey.shade600 : null,
+      ),
     );
   }
 

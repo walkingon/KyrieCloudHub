@@ -7,6 +7,7 @@ import 'package:xml/xml.dart';
 import '../../models/bucket.dart';
 import '../../models/object_file.dart';
 import '../../models/platform_credential.dart';
+import '../../models/storage_class.dart';
 import '../../utils/logger.dart';
 import 'cloud_platform_api.dart';
 import 'tencent/tencent_multipart_upload_manager.dart';
@@ -331,6 +332,16 @@ class TencentCosApi implements ICloudPlatformApi {
       final sizeStr = content.findElements('Size').first.innerText;
       final etag = content.findElements('ETag').first.innerText;
 
+      // 解析存储类型（可能不存在，默认标准存储）
+      StorageClass storageClass;
+      try {
+        final storageClassStr =
+            content.findElements('StorageClass').first.innerText;
+        storageClass = StorageClass.fromTencentValue(storageClassStr);
+      } catch (e) {
+        storageClass = StorageClass.standard;
+      }
+
       DateTime? lastModified;
       try {
         lastModified = DateTime.parse(lastModifiedStr);
@@ -359,6 +370,7 @@ class TencentCosApi implements ICloudPlatformApi {
           lastModified: lastModified,
           etag: etag,
           type: isFolder ? ObjectType.folder : ObjectType.file,
+          storageClass: isFolder ? null : storageClass,
         ),
       );
     }
@@ -410,6 +422,7 @@ class TencentCosApi implements ICloudPlatformApi {
     required String objectKey,
     required List<int> data,
     void Function(int sent, int total)? onProgress,
+    StorageClass? storageClass,
   }) async {
     try {
       final host = '$bucketName.cos.$region.myqcloud.com';
@@ -425,6 +438,7 @@ class TencentCosApi implements ICloudPlatformApi {
       final headersForSign = {'host': host, 'date': date};
       final signature = _getSignature('PUT', '/$objectKey', headersForSign);
 
+      // 构建请求头
       final headers = {
         'Authorization':
             'q-sign-algorithm=sha1&q-ak=${credential.secretId}&q-sign-time=$keyTime&q-key-time=$keyTime&q-header-list=date;host&q-url-param-list=&q-signature=$signature',
@@ -432,6 +446,11 @@ class TencentCosApi implements ICloudPlatformApi {
         'Host': host,
         'Date': date,
       };
+
+      // 添加存储类型（如果不是默认的标准存储）
+      if (storageClass != null && storageClass != StorageClass.standard) {
+        headers['x-cos-storage-class'] = storageClass.tencentValue;
+      }
 
       final response = await _dio.put(
         url,
@@ -1124,9 +1143,10 @@ class TencentCosApi implements ICloudPlatformApi {
     int chunkSize = kDefaultChunkSize,
     void Function(int sent, int total)? onProgress,
     void Function(int status)? onStatusChanged,
+    StorageClass? storageClass,
   }) async {
     try {
-      log('[TencentCOS] 开始分块上传: ${file.path} -> $objectKey');
+      log('[TencentCOS] 开始分块上传: ${file.path} -> $objectKey, storageClass: ${storageClass?.name ?? 'standard'}');
 
       final manager = TencentMultipartUploadManager(
         credential: credential,
@@ -1135,6 +1155,7 @@ class TencentCosApi implements ICloudPlatformApi {
         region: region,
         objectKey: objectKey,
         chunkSize: chunkSize,
+        storageClass: storageClass,
       );
 
       // 设置签名回调，复用 TencentCosApi 的签名方法
