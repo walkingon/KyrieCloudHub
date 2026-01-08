@@ -56,6 +56,7 @@ jobs:
         run: flutter build windows --release --build-number=${{ needs.get-version.outputs.build-number }}
 
       - name: Rename output
+        id: rename
         run: |
           $VERSION = "${{ needs.get-version.outputs.version }}"
           $ARCHIVE_NAME = "kyrie_cloud_hub_windows_${VERSION}.zip"
@@ -97,6 +98,7 @@ jobs:
         run: flutter build macos --release --build-number=${{ needs.get-version.outputs.build-number }}
 
       - name: Rename output
+        id: rename
         run: |
           VERSION="${{ needs.get-version.outputs.version }}"
           ARCHIVE_NAME="kyrie_cloud_hub_macos_${VERSION}.zip"
@@ -145,6 +147,7 @@ jobs:
         run: flutter build linux --release --build-number=${{ needs.get-version.outputs.build-number }}
 
       - name: Rename output
+        id: rename
         run: |
           VERSION="${{ needs.get-version.outputs.version }}"
           ARCHIVE_NAME="kyrie_cloud_hub_linux_${VERSION}.tar.gz"
@@ -200,6 +203,7 @@ jobs:
         run: flutter build apk --release --build-number=${{ needs.get-version.outputs.build-number }}
 
       - name: Rename output
+        id: rename
         run: |
           VERSION="${{ needs.get-version.outputs.version }}"
           ARCHIVE_NAME="kyrie_cloud_hub_android_${VERSION}.apk"
