@@ -33,8 +33,8 @@ class FileChunk {
 ///
 /// 用于将大文件分块读取，避免一次性加载到内存导致OOM
 class FileChunkReader {
-  /// 默认分块大小: 64MB（适合大文件上传，减少请求次数）
-  static const int defaultChunkSize = 64 * 1024 * 1024;
+  /// 默认分块大小: 8MB（适合网络不稳定环境）
+  static const int defaultChunkSize = 8 * 1024 * 1024;
 
   /// 最小分块大小: 64KB
   static const int minChunkSize = 64 * 1024;
@@ -66,7 +66,9 @@ class FileChunkReader {
     final fileSize = await file.length();
     final chunks = <FileChunk>[];
 
-    log('[FileChunkReader] 开始分块读取文件: ${file.path}, 文件大小: $fileSize bytes, 分块大小: $_chunkSize bytes');
+    log(
+      '[FileChunkReader] 开始分块读取文件: ${file.path}, 文件大小: $fileSize bytes, 分块大小: $_chunkSize bytes',
+    );
 
     final raf = await file.open(mode: FileMode.read);
     try {
@@ -75,7 +77,9 @@ class FileChunkReader {
 
       while (totalBytesRead < fileSize) {
         final remainingBytes = fileSize - totalBytesRead;
-        final bytesToRead = remainingBytes < _chunkSize ? remainingBytes : _chunkSize;
+        final bytesToRead = remainingBytes < _chunkSize
+            ? remainingBytes
+            : _chunkSize;
 
         final buffer = Uint8List(bytesToRead);
         final bytesRead = await raf.readInto(buffer);
@@ -94,7 +98,9 @@ class FileChunkReader {
         totalBytesRead += bytesRead;
         partNumber++;
 
-        log('[FileChunkReader] 读取分块 $partNumber, 大小: $bytesRead bytes, 进度: $totalBytesRead/$fileSize');
+        log(
+          '[FileChunkReader] 读取分块 $partNumber, 大小: $bytesRead bytes, 进度: $totalBytesRead/$fileSize',
+        );
 
         onProgress?.call(totalBytesRead, fileSize);
       }
@@ -127,7 +133,9 @@ class FileChunkReader {
     try {
       while (totalBytesRead < fileSize) {
         final remainingBytes = fileSize - totalBytesRead;
-        final bytesToRead = remainingBytes < _chunkSize ? remainingBytes : _chunkSize;
+        final bytesToRead = remainingBytes < _chunkSize
+            ? remainingBytes
+            : _chunkSize;
 
         final buffer = Uint8List(bytesToRead);
         final bytesRead = await raf.readInto(buffer);
@@ -173,7 +181,9 @@ class FileChunkReader {
     try {
       while (totalBytesRead < fileSize) {
         final remainingBytes = fileSize - totalBytesRead;
-        final bytesToRead = remainingBytes < _chunkSize ? remainingBytes : _chunkSize;
+        final bytesToRead = remainingBytes < _chunkSize
+            ? remainingBytes
+            : _chunkSize;
 
         final buffer = Uint8List(bytesToRead);
         final bytesRead = await raf.readInto(buffer);
@@ -208,24 +218,5 @@ class FileChunkReader {
   static int calculateChunkCount(int fileSize, {int? chunkSize}) {
     final size = chunkSize ?? defaultChunkSize;
     return (fileSize / size).ceil();
-  }
-
-  /// 获取推荐的最小分块大小
-  ///
-  /// 根据文件大小返回推荐的最小分块大小
-  /// - 小文件 (<20MB): 64KB
-  /// - 中等文件 (20MB-100MB): 256KB
-  /// - 大文件 (100MB-1GB): 1MB
-  /// - 超大文件 (>1GB): 2MB
-  static int getRecommendedChunkSize(int fileSize) {
-    if (fileSize < 20 * 1024 * 1024) {
-      return 64 * 1024; // 64KB
-    } else if (fileSize < 100 * 1024 * 1024) {
-      return 256 * 1024; // 256KB
-    } else if (fileSize < 1024 * 1024 * 1024) {
-      return 1024 * 1024; // 1MB
-    } else {
-      return 2 * 1024 * 1024; // 2MB
-    }
   }
 }

@@ -184,7 +184,7 @@ class BatchOperations {
           region: region,
           objectKey: obj.key,
           outputFile: saveFile,
-          chunkSize: 64 * 1024 * 1024, // 64MB 分块
+          chunkSize: kDefaultChunkSize, // 使用默认分块大小
           onProgress: (received, total) {
             currentFileTotal = total > 0 ? total : obj.size;
             updateProgress(received);

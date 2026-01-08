@@ -4,8 +4,8 @@ import '../../models/bucket.dart';
 import '../../models/object_file.dart';
 import '../../models/storage_class.dart';
 
-/// 默认分块大小 (64MB)
-const int kDefaultChunkSize = 64 * 1024 * 1024;
+/// 默认分块大小 (8MB - 适合网络不稳定环境，减少单个分块上传时间)
+const int kDefaultChunkSize = 8 * 1024 * 1024;
 
 /// 并行传输配置
 const int kDefaultParallelConcurrency = 2;  // 默认并行传输并发数

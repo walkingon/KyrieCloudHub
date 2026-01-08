@@ -968,6 +968,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     int total = obj.size > 0 ? obj.size : 1;
     double progress = 0.0;
     void Function(VoidCallback fn)? dialogSetState;
+    bool isDialogOpen = true;
 
     if (!mounted) return;
     showDialog(
@@ -1014,13 +1015,15 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         region: widget.bucket.region,
         objectKey: obj.key,
         outputFile: saveFile,
-        chunkSize: 64 * 1024 * 1024,
+        chunkSize: kDefaultChunkSize,
         onProgress: (r, t) {
-          dialogSetState?.call(() {
-            received = r;
-            total = t > 0 ? t : 1;
-            progress = total > 0 ? r / total : 0.0;
-          });
+          if (mounted && isDialogOpen) {
+            dialogSetState?.call(() {
+              received = r;
+              total = t > 0 ? t : 1;
+              progress = total > 0 ? r / total : 0.0;
+            });
+          }
         },
       );
     } else {
@@ -1030,16 +1033,19 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         objectKey: obj.key,
         outputFile: saveFile,
         onProgress: (r, t) {
-          dialogSetState?.call(() {
-            received = r;
-            total = t > 0 ? t : 1;
-            progress = total > 0 ? r / total : 0.0;
-          });
+          if (mounted && isDialogOpen) {
+            dialogSetState?.call(() {
+              received = r;
+              total = t > 0 ? t : 1;
+              progress = total > 0 ? r / total : 0.0;
+            });
+          }
         },
       );
     }
 
     if (!mounted) return;
+    isDialogOpen = false;
     Navigator.of(context).pop();
 
     if (downloadResult.success) {
@@ -1135,6 +1141,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     int total = obj.size > 0 ? obj.size : 1;
     double progress = 0.0;
     void Function(VoidCallback fn)? dialogSetState;
+    bool isDialogOpen = true;
 
     if (!mounted) return;
     showDialog(
@@ -1183,13 +1190,15 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         region: widget.bucket.region,
         objectKey: obj.key,
         outputFile: saveFile,
-        chunkSize: 64 * 1024 * 1024,
+        chunkSize: kDefaultChunkSize,
         onProgress: (r, t) {
-          dialogSetState?.call(() {
-            received = r;
-            total = t > 0 ? t : 1;
-            progress = total > 0 ? r / total : 0.0;
-          });
+          if (mounted && isDialogOpen) {
+            dialogSetState?.call(() {
+              received = r;
+              total = t > 0 ? t : 1;
+              progress = total > 0 ? r / total : 0.0;
+            });
+          }
         },
       );
     } else {
@@ -1199,16 +1208,19 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         objectKey: obj.key,
         outputFile: saveFile,
         onProgress: (r, t) {
-          dialogSetState?.call(() {
-            received = r;
-            total = t > 0 ? t : 1;
-            progress = total > 0 ? r / total : 0.0;
-          });
+          if (mounted && isDialogOpen) {
+            dialogSetState?.call(() {
+              received = r;
+              total = t > 0 ? t : 1;
+              progress = total > 0 ? r / total : 0.0;
+            });
+          }
         },
       );
     }
 
     if (!mounted) return;
+    isDialogOpen = false;
     Navigator.of(context).pop();
 
     if (downloadResult.success) {
@@ -1621,7 +1633,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           region: widget.bucket.region,
           objectKey: objectKey,
           file: File(pickedFile.path!),
-          chunkSize: 64 * 1024 * 1024,
+          chunkSize: kDefaultChunkSize,
           storageClass: storageClass,
           onProgress: (sent, total) {
             if (mounted && isDialogOpen) {
