@@ -1560,6 +1560,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     String currentFile = '';
     double currentProgress = 0.0;
     void Function(VoidCallback fn)? dialogSetState;
+    bool isDialogOpen = true;
 
     if (!mounted) return;
     showDialog(
@@ -1623,9 +1624,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           chunkSize: 64 * 1024 * 1024,
           storageClass: storageClass,
           onProgress: (sent, total) {
-            dialogSetState?.call(() {
-              currentProgress = total > 0 ? sent / total : 0.0;
-            });
+            if (mounted && isDialogOpen) {
+              dialogSetState?.call(() {
+                currentProgress = total > 0 ? sent / total : 0.0;
+              });
+            }
           },
           onStatusChanged: (status) {},
         );
@@ -1647,9 +1650,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           data: fileBytes,
           storageClass: storageClass,
           onProgress: (sent, total) {
-            dialogSetState?.call(() {
-              currentProgress = total > 0 ? sent / total : 0.0;
-            });
+            if (mounted && isDialogOpen) {
+              dialogSetState?.call(() {
+                currentProgress = total > 0 ? sent / total : 0.0;
+              });
+            }
           },
         );
         if (result.success) {
@@ -1661,6 +1666,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     }
 
     if (!mounted) return;
+    isDialogOpen = false;
     Navigator.of(context).pop();
     if (successCount > 0) {
       ScaffoldMessenger.of(context).showSnackBar(

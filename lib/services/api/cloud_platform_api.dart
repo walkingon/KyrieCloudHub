@@ -8,7 +8,7 @@ import '../../models/storage_class.dart';
 const int kDefaultChunkSize = 64 * 1024 * 1024;
 
 /// 并行传输配置
-const int kDefaultParallelConcurrency = 4;  // 默认并行传输并发数
+const int kDefaultParallelConcurrency = 2;  // 默认并行传输并发数
 
 class ApiResponse<T> {
   final bool success;
