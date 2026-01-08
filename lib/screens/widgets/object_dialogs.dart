@@ -153,54 +153,116 @@ Future<void> showRenameDialog(
   );
 }
 
+/// 删除确认结果
+class DeleteConfirmResult {
+  final bool confirmed;
+  final bool deleteLocal;
+
+  DeleteConfirmResult({required this.confirmed, this.deleteLocal = false});
+}
+
 /// 删除确认对话框
-Future<bool> showDeleteConfirmDialog(
+/// [hasLocalFile] 如果为true，会显示"同时删除本地"选项
+Future<DeleteConfirmResult> showDeleteConfirmDialog(
   BuildContext context, {
   required String objectName,
+  bool hasLocalFile = false,
 }) async {
+  bool deleteLocal = false;
+
   final confirmed = await showDialog(
     context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('确认删除'),
-      content: Text('确定要删除 $objectName 吗？'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('取消'),
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        title: const Text('确认删除'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('确定要删除 $objectName 吗？'),
+            if (hasLocalFile) ...[
+              const SizedBox(height: 16),
+              CheckboxListTile(
+                title: const Text('同时删除本地文件'),
+                value: deleteLocal,
+                onChanged: (value) {
+                  setState(() {
+                    deleteLocal = value ?? false;
+                  });
+                },
+              ),
+            ],
+          ],
         ),
-        TextButton(
-          style: TextButton.styleFrom(foregroundColor: Colors.red),
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('删除'),
-        ),
-      ],
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
     ),
   );
-  return confirmed == true;
+  return DeleteConfirmResult(confirmed: confirmed == true, deleteLocal: deleteLocal);
+}
+
+/// 批量删除确认结果
+class BatchDeleteConfirmResult {
+  final bool confirmed;
+  final bool deleteLocal;
+
+  BatchDeleteConfirmResult({required this.confirmed, this.deleteLocal = false});
 }
 
 /// 批量删除确认对话框
-Future<bool> showBatchDeleteConfirmDialog(
+/// [hasLocalFiles] 如果为true且有本地文件，会显示"同时删除本地文件"选项
+Future<BatchDeleteConfirmResult> showBatchDeleteConfirmDialog(
   BuildContext context, {
   required int fileCount,
+  bool hasLocalFiles = false,
 }) async {
+  bool deleteLocal = false;
+
   final confirmed = await showDialog(
     context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('确认删除'),
-      content: Text('确定要删除选中的 $fileCount 个文件吗？此操作不可恢复。'),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context, false),
-          child: const Text('取消'),
+    builder: (context) => StatefulBuilder(
+      builder: (context, setState) => AlertDialog(
+        title: const Text('确认删除'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('确定要删除选中的 $fileCount 个文件吗？此操作不可恢复。'),
+            if (hasLocalFiles) ...[
+              const SizedBox(height: 16),
+              CheckboxListTile(
+                title: const Text('同时删除本地文件'),
+                value: deleteLocal,
+                onChanged: (value) {
+                  setState(() {
+                    deleteLocal = value ?? false;
+                  });
+                },
+              ),
+            ],
+          ],
         ),
-        TextButton(
-          style: TextButton.styleFrom(foregroundColor: Colors.red),
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('删除'),
-        ),
-      ],
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
     ),
   );
-  return confirmed == true;
+  return BatchDeleteConfirmResult(confirmed: confirmed == true, deleteLocal: deleteLocal);
 }

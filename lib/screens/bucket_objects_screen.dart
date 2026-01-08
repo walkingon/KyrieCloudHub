@@ -1459,15 +1459,42 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
   // ==================== 删除 ====================
 
+  Future<void> _deleteLocalFile(String objectKey) async {
+    final downloadRoot = await _getDownloadRootDirectory();
+    if (downloadRoot.isEmpty) return;
+
+    final fullPath = FilePathHelper.buildLocalFilePath(
+      downloadRoot: downloadRoot,
+      platformName: widget.platform.displayName,
+      bucketName: widget.bucket.name,
+      objectKey: objectKey,
+    );
+    final file = File(fullPath);
+    if (await file.exists()) {
+      await file.delete();
+      setState(() {
+        _localFileKeys.remove(objectKey);
+      });
+      logUi('Deleted local file: $fullPath');
+    }
+  }
+
   Future<void> _deleteObject(ObjectFile obj) async {
-    final confirmed = await showDeleteConfirmDialog(
+    final hasLocalFile = obj.type != ObjectType.folder && _localFileKeys.contains(obj.key);
+    final result = await showDeleteConfirmDialog(
       context,
       objectName: obj.name,
+      hasLocalFile: hasLocalFile,
     );
 
-    if (confirmed != true) {
+    if (!result.confirmed) {
       logUi('User cancelled delete: ${obj.name}');
       return;
+    }
+
+    // 如果需要同时删除本地文件
+    if (result.deleteLocal && hasLocalFile) {
+      await _deleteLocalFile(obj.key);
     }
 
     final credential = await _storage.getCredential(widget.platform);
@@ -1763,14 +1790,26 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     final selectedFiles = _selectedFileList;
     if (selectedFiles.isEmpty) return;
 
-    final confirmed = await showBatchDeleteConfirmDialog(
+    // 检查是否有本地文件
+    final hasLocalFiles = selectedFiles.any((f) => _localFileKeys.contains(f.key));
+    final result = await showBatchDeleteConfirmDialog(
       context,
       fileCount: selectedFiles.length,
+      hasLocalFiles: hasLocalFiles,
     );
 
-    if (confirmed != true) {
+    if (!result.confirmed) {
       logUi('User cancelled batch delete');
       return;
+    }
+
+    // 如果需要同时删除本地文件
+    if (result.deleteLocal && hasLocalFiles) {
+      for (final file in selectedFiles) {
+        if (_localFileKeys.contains(file.key)) {
+          await _deleteLocalFile(file.key);
+        }
+      }
     }
 
     final credential = await _storage.getCredential(widget.platform);
