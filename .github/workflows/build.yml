@@ -152,7 +152,6 @@ jobs:
           VERSION="${{ needs.get-version.outputs.version }}"
           ARCHIVE_NAME="kyrie_cloud_hub_linux_${VERSION}.tar.gz"
           tar -czf "$ARCHIVE_NAME" -C build/linux/x64/release/bundle .
-          mv "$ARCHIVE_NAME" $GITHUB_WORKSPACE/
           echo "artifact_name=$ARCHIVE_NAME" >> $GITHUB_OUTPUT
 
       - name: Upload artifact
@@ -229,8 +228,10 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*.zip
-          artifacts: artifacts/**/*.apk,artifacts/**/*.tar.gz
+          files: |
+            artifacts/**/*.zip
+            artifacts/**/*.apk
+            artifacts/**/*.tar.gz
           draft: false
           prerelease: false
           tag_name: ${{ github.ref_name }}
