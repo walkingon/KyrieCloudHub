@@ -44,8 +44,8 @@ jobs:
         run: |
           $VERSION = (Select-String -Path pubspec.yaml -Pattern '^version:').Line -replace 'version: *' -replace '\+.*' | ForEach-Object { $_.Trim() }
           $BUILD_NUMBER = (Select-String -Path pubspec.yaml -Pattern '^version:').Line -replace '.*\+' | ForEach-Object { $_.Trim() }
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "build-number=$BUILD_NUMBER" >> $GITHUB_OUTPUT
+          "version=$VERSION" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "build-number=$BUILD_NUMBER" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           echo "Version: $VERSION, Build: $BUILD_NUMBER"
         shell: powershell
 
@@ -61,7 +61,7 @@ jobs:
           $VERSION = "${{ needs.get-version.outputs.version }}"
           $ARCHIVE_NAME = "kyrie_cloud_hub_windows_${VERSION}.zip"
           Compress-Archive -Path build/windows/x64/runner/Release/* -DestinationPath $ARCHIVE_NAME
-          echo "artifact_name=$ARCHIVE_NAME" >> $GITHUB_OUTPUT
+          echo "artifact_name=$ARCHIVE_NAME" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
