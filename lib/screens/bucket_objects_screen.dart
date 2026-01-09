@@ -592,6 +592,33 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
             },
           ),
           ListTile(
+            leading: const Icon(Icons.drive_file_rename_outline),
+            title: const Text('重命名'),
+            onTap: () {
+              Navigator.pop(context);
+              logUi('User selected action: 重命名 for ${obj.name}');
+              _showRenameDialog(obj);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.cut),
+            title: const Text('剪切'),
+            onTap: () {
+              Navigator.pop(context);
+              logUi('User selected action: 剪切 for ${obj.name}');
+              _handleCut(obj);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.copy),
+            title: const Text('复制'),
+            onTap: () {
+              Navigator.pop(context);
+              logUi('User selected action: 复制 for ${obj.name}');
+              _handleCopy(obj);
+            },
+          ),
+          ListTile(
             leading: const Icon(Icons.delete),
             title: const Text('删除'),
             onTap: () {
@@ -609,11 +636,25 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
   void _showObjectOptionsMenu(ObjectFile obj) {
     final isFolder = obj.type == ObjectType.folder;
 
+    if (!isFolder) {
+      logUi('User long pressed file: ${obj.name}');
+      return;
+    }
+
     showModalBottomSheet(
       context: context,
       builder: (context) => Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          ListTile(
+            leading: const Icon(Icons.download),
+            title: const Text('下载'),
+            onTap: () {
+              Navigator.pop(context);
+              logUi('User selected action: 下载 for ${obj.name}');
+              _handleFolderDownload(obj);
+            },
+          ),
           ListTile(
             leading: const Icon(Icons.drive_file_rename_outline),
             title: const Text('重命名'),
@@ -641,26 +682,15 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
               _handleCopy(obj);
             },
           ),
-          if (isFolder) ...[
-            ListTile(
-              leading: const Icon(Icons.download),
-              title: const Text('下载'),
-              onTap: () {
-                Navigator.pop(context);
-                logUi('User selected action: 下载 for ${obj.name}');
-                _handleFolderDownload(obj);
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.delete),
-              title: const Text('删除'),
-              onTap: () {
-                Navigator.pop(context);
-                logUi('User selected action: 删除 for ${obj.name}');
-                _deleteObject(obj);
-              },
-            ),
-          ],
+          ListTile(
+            leading: const Icon(Icons.delete),
+            title: const Text('删除'),
+            onTap: () {
+              Navigator.pop(context);
+              logUi('User selected action: 删除 for ${obj.name}');
+              _deleteObject(obj);
+            },
+          ),
           const SizedBox(height: 16),
         ],
       ),
