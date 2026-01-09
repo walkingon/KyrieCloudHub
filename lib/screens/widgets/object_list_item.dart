@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../models/object_file.dart';
 import '../../../../utils/file_type_helper.dart';
+import '../../../../utils/file_size_formatter.dart';
 
 /// 列表项组件
 class ObjectListItem extends StatelessWidget {
@@ -80,14 +81,7 @@ class ObjectListItem extends StatelessWidget {
     );
   }
 
-  String _formatBytes(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) {
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
-  }
+  String _formatBytes(int bytes) => FileSizeFormatter.format(bytes);
 
   String _formatDate(DateTime? date) {
     if (date == null) return '未知';

@@ -13,6 +13,7 @@ import '../services/cloud_platform_factory.dart';
 import '../services/storage_service.dart';
 import '../utils/file_path_helper.dart';
 import '../utils/logger.dart';
+import '../utils/file_size_formatter.dart';
 import 'widgets/export.dart';
 
 // ignore_for_file: library_private_types_in_public_api
@@ -1026,7 +1027,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '${(progress * 100).toInt()}% (${_formatBytes(received)} / ${_formatBytes(total)})',
+                    '${(progress * 100).toInt()}% (${FileSizeFormatter.format(received)} / ${FileSizeFormatter.format(total)})',
                   ),
                 ],
               ),
@@ -1199,7 +1200,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '${(progress * 100).toInt()}% (${_formatBytes(received)} / ${_formatBytes(total)})',
+                    '${(progress * 100).toInt()}% (${FileSizeFormatter.format(received)} / ${FileSizeFormatter.format(total)})',
                   ),
                 ],
               ),
@@ -2148,15 +2149,6 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
-  }
-
-  String _formatBytes(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) {
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
   }
 
   String _getFolderName(String folderKey) {

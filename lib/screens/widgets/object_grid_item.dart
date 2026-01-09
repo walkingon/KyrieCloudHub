@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../../models/object_file.dart';
 import '../../../../utils/file_type_helper.dart';
+import '../../../../utils/file_size_formatter.dart';
 
 /// 网格项组件
 class ObjectGridItem extends StatelessWidget {
@@ -111,12 +112,5 @@ class ObjectGridItem extends StatelessWidget {
     return parts.join(' ');
   }
 
-  String _formatBytes(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) {
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
-  }
+  String _formatBytes(int bytes) => FileSizeFormatter.format(bytes);
 }

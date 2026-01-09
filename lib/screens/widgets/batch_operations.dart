@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../../models/object_file.dart';
 import '../../../../services/api/cloud_platform_api.dart';
+import '../../../../utils/file_size_formatter.dart';
 import '../../../../utils/logger.dart';
 
 /// 批量操作处理器
@@ -59,16 +60,6 @@ class BatchOperations {
     onSuccess();
   }
 
-  /// 格式化字节大小
-  static String _formatBytes(int bytes) {
-    if (bytes < 1024) return '$bytes B';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) {
-      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    }
-    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
-  }
-
   /// 批量下载
   static Future<void> batchDownload({
     required BuildContext context,
@@ -121,7 +112,7 @@ class BatchOperations {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Text('${_formatBytes(currentFileReceived)} / ${_formatBytes(currentFileTotal)} (${(fileProgress * 100).toInt()}%)'),
+                  Text('${FileSizeFormatter.formatWithPreciseGB(currentFileReceived)} / ${FileSizeFormatter.formatWithPreciseGB(currentFileTotal)} (${(fileProgress * 100).toInt()}%)'),
                   const SizedBox(height: 4),
                   Text('$currentIndex/${selectedFiles.length}', style: TextStyle(fontSize: 12, color: Colors.grey[600])),
                 ],
