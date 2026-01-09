@@ -73,7 +73,7 @@ class ObjectGridItem extends StatelessWidget {
                       style: const TextStyle(fontSize: 10, color: Colors.grey),
                     ),
                   ),
-                if (isFolder && isSelectionMode)
+                if (isSelectionMode && !isFolder)
                   Checkbox(
                     value: isSelected,
                     onChanged: (value) => onCheckboxChanged(),

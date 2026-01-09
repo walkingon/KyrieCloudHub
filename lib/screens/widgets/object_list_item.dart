@@ -47,7 +47,7 @@ class ObjectListItem extends StatelessWidget {
           : _buildSubtitle(),
       selected: isSelected,
       selectedTileColor: Colors.blue.withValues(alpha: 0.1),
-      trailing: isFolder
+      trailing: isFolder || !isSelectionMode
           ? null
           : Checkbox(
               value: isSelected,

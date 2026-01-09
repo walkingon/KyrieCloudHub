@@ -442,6 +442,11 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
 
     return [
       IconButton(
+        icon: const Icon(Icons.close),
+        onPressed: _exitSelectionMode,
+        tooltip: '取消',
+      ),
+      IconButton(
         icon: Icon(
           selectedFileCount == fileCount ? Icons.deselect : Icons.select_all,
         ),
@@ -1887,21 +1892,19 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           foregroundColor: Colors.white,
           actions: [
             if (!_isSelectionMode) _buildViewModeToggle(),
-            ..._buildSelectionActions(),
+            if (_isSelectionMode) ..._buildSelectionActions(),
           ],
-          leading: _isSelectionMode
-              ? IconButton(icon: const Icon(Icons.close), onPressed: _exitSelectionMode)
-              : IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: () {
-                    if (_isInSubdirectory) {
-                      _goToParentDirectory();
-                    } else {
-                      Navigator.pop(context);
-                    }
-                  },
-                  tooltip: _isInSubdirectory ? '返回上级' : '返回',
-                ),
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back),
+            onPressed: () {
+              if (_isInSubdirectory) {
+                _goToParentDirectory();
+              } else {
+                Navigator.pop(context);
+              }
+            },
+            tooltip: _isInSubdirectory ? '返回上级' : '返回',
+          ),
         ),
         body: _buildBody(),
       floatingActionButton: _isSelectionMode
@@ -2052,7 +2055,20 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           },
           onLongPress: () {
             logUi('User long pressed object: ${obj.name}');
-            _showObjectOptionsMenu(obj);
+            // User long pressed file - enter batch selection mode
+            if (!isFolder) {
+              if (!_isSelectionMode) {
+                setState(() {
+                  _isSelectionMode = true;
+                  _selectedObjects.add(obj.key);
+                });
+                logUi('Entered selection mode, selected: ${obj.name}');
+              } else {
+                _toggleSelection(obj);
+              }
+            } else {
+              _showObjectOptionsMenu(obj);
+            }
           },
           onCheckboxChanged: () => _toggleSelection(obj),
         );
@@ -2095,7 +2111,20 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           },
           onLongPress: () {
             logUi('User long pressed object: ${obj.name}');
-            _showObjectOptionsMenu(obj);
+            // User long pressed file - enter batch selection mode
+            if (!isFolder) {
+              if (!_isSelectionMode) {
+                setState(() {
+                  _isSelectionMode = true;
+                  _selectedObjects.add(obj.key);
+                });
+                logUi('Entered selection mode, selected: ${obj.name}');
+              } else {
+                _toggleSelection(obj);
+              }
+            } else {
+              _showObjectOptionsMenu(obj);
+            }
           },
           onCheckboxChanged: () => _toggleSelection(obj),
         );
