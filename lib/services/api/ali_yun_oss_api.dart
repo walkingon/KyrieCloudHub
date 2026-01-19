@@ -67,14 +67,25 @@ class AliyunOssApi implements ICloudPlatformApi {
   }
 
   /// 生成阿里云OSS V4签名
+  /// 如果传入了region，使用它；否则使用凭证的region
   String _getSignatureV4({
     required String method,
     String? bucketName,
     String? objectKey,
     required Map<String, String> headers,
     Map<String, String>? queryParams,
+    String? region,
   }) {
-    return _getSignatureGenerator().generate(
+    // 如果指定了region，创建一个临时签名生成器；否则使用单例
+    final generator = region != null
+        ? AliyunSignatureGenerator(
+            credential: credential,
+            region: region,
+            debugMode: _debugSignature,
+          )
+        : _getSignatureGenerator();
+
+    return generator.generate(
       method: method,
       bucketName: bucketName,
       objectKey: objectKey,
@@ -123,10 +134,15 @@ class AliyunOssApi implements ICloudPlatformApi {
   }
 
   /// 获取地域对应的endpoint后缀
-  String _getRegionEndpoint() {
-    final region = _getRegion();
-    // 阿里云地域格式: oss-cn-beijing, oss-cn-shanghai 等
-    return 'oss-$region.aliyuncs.com';
+  /// 如果传入了region，使用它；否则使用凭证的region
+  String _getRegionEndpoint([String? region]) {
+    final effectiveRegion = region ?? _getRegion();
+    // 阿里云地域格式: oss-cn-beijing 或 cn-hangzhou
+    // 如果已经带有 oss- 前缀，直接使用；否则添加 oss- 前缀
+    if (effectiveRegion.startsWith('oss-')) {
+      return '$effectiveRegion.aliyuncs.com';
+    }
+    return 'oss-$effectiveRegion.aliyuncs.com';
   }
 
   /// 对路径进行 URI 编码（不编码正斜杠）
@@ -151,6 +167,7 @@ class AliyunOssApi implements ICloudPlatformApi {
   }
 
   /// 构建请求头（包含签名）
+  /// 如果传入了region，使用它；否则使用凭证的region
   Map<String, String> _buildHeaders({
     required String method,
     String? bucketName,
@@ -158,13 +175,14 @@ class AliyunOssApi implements ICloudPlatformApi {
     Map<String, String>? extraHeaders,
     Map<String, String>? queryParams,
     String? customHost, // 用于GetService等特殊API
+    String? region,     // bucket的实际地域
   }) {
     // 使用 ISO8601 格式的日期时间（阿里云V4签名要求）
     final date = DateTime.now().toUtc();
     final iso8601DateTime = _formatIso8601DateTime(date);
     final httpDate = HttpDate.format(date);
 
-    final host = customHost ?? _getHost(bucketName);
+    final host = customHost ?? _getHost(bucketName, region);
 
     // 注意：不要在这里添加 date header，否则会导致签名不匹配
     // date header 会在签名计算完成后添加（用于HTTP协议兼容性，但不参与签名）
@@ -181,6 +199,7 @@ class AliyunOssApi implements ICloudPlatformApi {
       objectKey: objectKey,
       headers: headers,
       queryParams: queryParams,
+      region: region,
     );
 
     // 先添加 Authorization（不包含在签名中）
@@ -194,8 +213,9 @@ class AliyunOssApi implements ICloudPlatformApi {
   }
 
   /// 获取请求Host
-  String _getHost(String? bucketName) {
-    final regionEndpoint = _getRegionEndpoint();
+  /// 如果传入了region，使用它；否则使用凭证的region
+  String _getHost(String? bucketName, [String? region]) {
+    final regionEndpoint = _getRegionEndpoint(region);
     if (bucketName == null) {
       // 列举存储桶时使用地域对应的endpoint
       return regionEndpoint;
@@ -205,8 +225,9 @@ class AliyunOssApi implements ICloudPlatformApi {
   }
 
   /// 获取存储桶所在地域的Endpoint
-  String _getEndpoint(String bucketName) {
-    return '$bucketName.${_getRegionEndpoint()}';
+  /// 如果传入了region，使用它；否则使用凭证的region
+  String _getEndpoint(String bucketName, [String? region]) {
+    return '$bucketName.${_getRegionEndpoint(region)}';
   }
 
   /// 解析阿里云API错误响应
@@ -345,7 +366,8 @@ class AliyunOssApi implements ICloudPlatformApi {
     String? marker,
   }) async {
     try {
-      final host = _getEndpoint(bucketName);
+      // 使用bucket的实际地域生成endpoint
+      final host = _getEndpoint(bucketName, region);
 
       // 构建查询参数
       // marker 值使用 _encodeMarkerValue 预先编码（解决圆括号等特殊字符签名不匹配问题）
@@ -381,6 +403,7 @@ class AliyunOssApi implements ICloudPlatformApi {
         method: 'GET',
         bucketName: bucketName,
         queryParams: signedQueryParams,
+        region: region,
       );
 
       log('[AliyunOSS] 发送GET请求...');
@@ -560,7 +583,8 @@ class AliyunOssApi implements ICloudPlatformApi {
     StorageClass? storageClass,
   }) async {
     try {
-      final host = _getEndpoint(bucketName);
+      // 使用bucket的实际地域生成endpoint
+      final host = _getEndpoint(bucketName, region);
       final url = 'https://$host/${_encodePath(objectKey)}';
 
       log('[AliyunOSS] 开始上传对象: $objectKey, storageClass: ${storageClass?.name ?? 'standard'}');
@@ -581,7 +605,7 @@ class AliyunOssApi implements ICloudPlatformApi {
         'date': httpDate,
         'x-oss-date': iso8601DateTime,
         'x-oss-content-sha256': 'UNSIGNED-PAYLOAD', // 阿里云V4签名要求
-        'host': _getEndpoint(bucketName),
+        'host': _getEndpoint(bucketName, region),
       };
 
       // 添加存储类型（如果不是默认的标准存储）
@@ -590,12 +614,13 @@ class AliyunOssApi implements ICloudPlatformApi {
         log('[AliyunOSS] 设置存储类型: ${storageClass.aliyunValue}');
       }
 
-      // 生成签名
+      // 生成签名（使用bucket的实际地域）
       final signature = _getSignatureV4(
         method: 'PUT',
         bucketName: bucketName,
         objectKey: objectKey,
         headers: headers,
+        region: region,
       );
       headers['Authorization'] = signature;
 
@@ -634,7 +659,8 @@ class AliyunOssApi implements ICloudPlatformApi {
     void Function(int received, int total)? onProgress,
   }) async {
     try {
-      final host = _getEndpoint(bucketName);
+      // 使用bucket的实际地域生成endpoint
+      final host = _getEndpoint(bucketName, region);
       final url = 'https://$host/${_encodePath(objectKey)}';
 
       log('[AliyunOSS] 开始下载对象: $objectKey');
@@ -643,6 +669,7 @@ class AliyunOssApi implements ICloudPlatformApi {
         method: 'GET',
         bucketName: bucketName,
         objectKey: objectKey,
+        region: region,
       );
 
       // 使用流式响应，逐步写入文件
@@ -699,6 +726,7 @@ class AliyunOssApi implements ICloudPlatformApi {
       );
 
       // 设置签名方法（包装为异步）
+      // 使用bucket的实际地域进行签名
       downloadManager.getSignature =
           ({
             required String method,
@@ -713,6 +741,7 @@ class AliyunOssApi implements ICloudPlatformApi {
               objectKey: objectKey,
               headers: headers,
               queryParams: queryParams,
+              region: region,
             );
           };
 
@@ -746,7 +775,8 @@ class AliyunOssApi implements ICloudPlatformApi {
     required String objectKey,
   }) async {
     try {
-      final host = _getEndpoint(bucketName);
+      // 使用bucket的实际地域生成endpoint
+      final host = _getEndpoint(bucketName, region);
       final url = 'https://$host/${_encodePath(objectKey)}';
 
       log('[AliyunOSS] 开始删除对象: $objectKey');
@@ -754,6 +784,7 @@ class AliyunOssApi implements ICloudPlatformApi {
       final headers = _buildHeaders(
         method: 'DELETE',
         bucketName: bucketName,
+        region: region,
         objectKey: objectKey,
       );
 
@@ -789,7 +820,8 @@ class AliyunOssApi implements ICloudPlatformApi {
   }) async {
     // 阿里云OSS支持批量删除，通过POST请求到 /?delete
     try {
-      final host = _getEndpoint(bucketName);
+      // 使用bucket的实际地域生成endpoint
+      final host = _getEndpoint(bucketName, region);
       final url = 'https://$host/?delete';
 
       log('[AliyunOSS] 开始批量删除对象: ${objectKeys.length} 个文件');
@@ -823,16 +855,17 @@ class AliyunOssApi implements ICloudPlatformApi {
         'date': httpDate,
         'x-oss-date': iso8601DateTime,
         'x-oss-content-sha256': 'UNSIGNED-PAYLOAD', // 阿里云V4签名要求
-        'host': _getEndpoint(bucketName),
+        'host': _getEndpoint(bucketName, region),
       };
 
-      // 生成签名
+      // 生成签名（使用bucket的实际地域）
       final signature = _getSignatureV4(
         method: 'POST',
         bucketName: bucketName,
         objectKey: '', // 空字符串，path为 /
         queryParams: {'delete': ''}, // ?delete 作为查询参数
         headers: headers,
+        region: region,
       );
       headers['Authorization'] = signature;
 
@@ -871,7 +904,8 @@ class AliyunOssApi implements ICloudPlatformApi {
     try {
       // 构建文件夹的key：prefix + folderName + /
       final objectKey = prefix.isEmpty ? '$folderName/' : '$prefix$folderName/';
-      final host = _getEndpoint(bucketName);
+      // 使用bucket的实际地域生成endpoint
+      final host = _getEndpoint(bucketName, region);
       final url = 'https://$host/${_encodePath(objectKey)}';
 
       log('[AliyunOSS] 创建文件夹: $objectKey');
@@ -887,15 +921,16 @@ class AliyunOssApi implements ICloudPlatformApi {
         'date': httpDate,
         'x-oss-date': iso8601DateTime,
         'x-oss-content-sha256': 'UNSIGNED-PAYLOAD', // 阿里云V4签名要求
-        'host': _getEndpoint(bucketName),
+        'host': _getEndpoint(bucketName, region),
       };
 
-      // 生成签名
+      // 生成签名（使用bucket的实际地域）
       final signature = _getSignatureV4(
         method: 'PUT',
         bucketName: bucketName,
         objectKey: objectKey,
         headers: headers,
+        region: region,
       );
       headers['Authorization'] = signature;
 
@@ -1216,7 +1251,8 @@ class AliyunOssApi implements ICloudPlatformApi {
     required String targetKey,
   }) async {
     try {
-      final host = _getEndpoint(bucketName);
+      // 使用bucket的实际地域生成endpoint
+      final host = _getEndpoint(bucketName, region);
       final url = 'https://$host/${_encodePath(targetKey)}';
 
       log('[AliyunOSS] 复制对象: $sourceKey -> $targetKey');
@@ -1235,16 +1271,17 @@ class AliyunOssApi implements ICloudPlatformApi {
         'date': httpDate,
         'x-oss-date': iso8601DateTime,
         'x-oss-content-sha256': 'UNSIGNED-PAYLOAD', // 阿里云V4签名要求
-        'host': _getEndpoint(bucketName),
+        'host': _getEndpoint(bucketName, region),
         'x-oss-copy-source': '/$bucketName/$encodedSourceKey',
       };
 
-      // 生成签名
+      // 生成签名（使用bucket的实际地域）
       final signature = _getSignatureV4(
         method: 'PUT',
         bucketName: bucketName,
         objectKey: targetKey,
         headers: headers,
+        region: region,
       );
       headers['Authorization'] = signature;
 
@@ -1301,6 +1338,7 @@ class AliyunOssApi implements ICloudPlatformApi {
       );
 
       // 设置签名方法（包装为异步）
+      // 使用bucket的实际地域进行签名
       uploadManager.getSignature =
           ({
             required String method,
@@ -1315,6 +1353,7 @@ class AliyunOssApi implements ICloudPlatformApi {
               objectKey: objectKey,
               headers: headers,
               queryParams: queryParams,
+              region: region,
             );
           };
 
