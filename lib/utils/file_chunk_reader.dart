@@ -17,6 +17,9 @@ class FileChunk {
   /// 分块在文件中的起始偏移量
   final int offset;
 
+  /// 重试次数（用于上传失败重试）
+  int retryCount = 0;
+
   FileChunk({
     required this.partNumber,
     required this.data,

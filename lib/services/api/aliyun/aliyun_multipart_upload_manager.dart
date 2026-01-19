@@ -92,6 +92,12 @@ class AliyunMultipartUploadManager {
     Map<String, String>? queryParams,
   })? getSignature;
 
+  /// 重试次数上限
+  static const int maxRetryCount = 3;
+
+  /// 重试间隔（毫秒）
+  static const int retryDelayMs = 500;
+
   /// 进度更新间隔（毫秒）- 使用更长的间隔减少消息数量
   static const _progressThrottleMs = 500;
 
@@ -530,7 +536,12 @@ class AliyunMultipartUploadManager {
     }
   }
 
-  /// 上传整个文件（封装好的完整流程，支持并行上传）
+  /// 上传整个文件（封装好的完整流程，支持流水线式并行上传和重试）
+  ///
+  /// [file] 要上传的文件
+  /// [onProgress] 进度回调 (已上传字节数, 总字节数)
+  /// [onStatusChanged] 状态变更回调
+  /// [concurrency] 并发上传数
   Future<bool> uploadFile(
     File file, {
     void Function(int bytesUploaded, int totalBytes)? onProgress,
@@ -558,53 +569,81 @@ class AliyunMultipartUploadManager {
       return false;
     }
 
-    // 读取并上传分块
+    // 读取并上传分块（流水线模式）
     _setStatus(AliyunMultipartUploadStatus.uploading);
     final reader = FileChunkReader(chunkSize: chunkSize);
 
     final totalChunks = FileChunkReader.calculateChunkCount(totalBytes, chunkSize: chunkSize);
-    log('[AliyunMultipartUploadManager] 开始并行上传 $totalChunks 个分块，并发数: $concurrency');
+    log('[AliyunMultipartUploadManager] 开始流水线式上传 $totalChunks 个分块，并发数: $concurrency');
 
-    // 收集所有分块数据
-    final chunks = <FileChunk>[];
-    await for (final chunk in reader.chunkStream(file)) {
-      chunks.add(chunk);
-    }
-
-    // 并行上传分块
+    // 用于存储待重试的分块
+    final failedChunks = <FileChunk>[];
     int successCount = 0;
     int nextIndex = 0;
-    final pendingTasks = <Future<bool>>[];
-    bool hasError = false;
 
-    while (nextIndex < chunks.length || pendingTasks.isNotEmpty) {
-      // 填充任务队列直到达到并发上限
-      while (nextIndex < chunks.length && pendingTasks.length < concurrency) {
-        final chunk = chunks[nextIndex];
-        final task = uploadPart(chunk.partNumber, chunk.data).then((success) {
-          if (success) {
-            successCount++;
-          }
-          return success;
-        });
-        pendingTasks.add(task);
-        nextIndex++;
-      }
+    // 已读取的分块缓冲区（流水线模式）
+    final chunkBuffer = <FileChunk>[];
 
-      // 等待当前批次任务完成
-      if (pendingTasks.isNotEmpty) {
-        final results = await Future.wait(pendingTasks);
-        pendingTasks.clear();
+    // 流式读取分块，同时进行上传
+    await for (final chunk in reader.chunkStream(file)) {
+      chunkBuffer.add(chunk);
 
-        // 如果有任何一个失败的，中止上传
-        if (results.any((r) => !r)) {
-          hasError = true;
-          break;
+      // 当缓冲区中的分块数量达到并发数时，开始并行上传
+      while (chunkBuffer.length >= concurrency || (nextIndex >= totalChunks - 1 && chunkBuffer.isNotEmpty)) {
+        // 启动并行上传任务
+        final uploadTasks = <Future<bool>>[];
+        final chunksToUpload = <FileChunk>[];
+
+        // 从缓冲区中取出最多 concurrency 个分块进行上传
+        final count = chunkBuffer.length >= concurrency ? concurrency : chunkBuffer.length;
+        for (int i = 0; i < count; i++) {
+          final chunk = chunkBuffer.removeAt(0);
+          chunksToUpload.add(chunk);
+          uploadTasks.add(_uploadPartWithRetry(chunk));
         }
+
+        // 并行执行上传任务
+        final results = await Future.wait(uploadTasks);
+
+        // 处理上传结果
+        for (int i = 0; i < results.length; i++) {
+          if (results[i]) {
+            successCount++;
+          } else {
+            // 记录失败的分块（如果在重试后仍然失败）
+            if (chunksToUpload[i].retryCount >= maxRetryCount) {
+              failedChunks.add(chunksToUpload[i]);
+            }
+          }
+        }
+
+        // 如果有无法重试成功的分块，中止上传
+        if (failedChunks.isNotEmpty) {
+          logError('[AliyunMultipartUploadManager] 有 ${failedChunks.length} 个分块重试后仍然失败');
+          await abort();
+          return false;
+        }
+
+        // 更新已处理的索引
+        nextIndex += count;
       }
     }
 
-    if (hasError || successCount != totalChunks) {
+    // 确保所有分块都已处理
+    if (chunkBuffer.isNotEmpty) {
+      final uploadTasks = chunkBuffer.map((chunk) => _uploadPartWithRetry(chunk)).toList();
+      final results = await Future.wait(uploadTasks);
+
+      for (final result in results) {
+        if (result) {
+          successCount++;
+        }
+      }
+
+      chunkBuffer.clear();
+    }
+
+    if (successCount != totalChunks) {
       errorMessage = '部分分块上传失败: $successCount/$totalChunks';
       logError('[AliyunMultipartUploadManager] $errorMessage');
       await abort();
@@ -615,6 +654,31 @@ class AliyunMultipartUploadManager {
 
     // 完成上传
     return await complete();
+  }
+
+  /// 带重试的上传单个分块
+  Future<bool> _uploadPartWithRetry(FileChunk chunk) async {
+    int retryCount = 0;
+    chunk.retryCount = 0;
+
+    while (retryCount < maxRetryCount) {
+      final success = await uploadPart(chunk.partNumber, chunk.data);
+      if (success) {
+        return true;
+      }
+
+      retryCount++;
+      chunk.retryCount = retryCount;
+
+      if (retryCount < maxRetryCount) {
+        log('[AliyunMultipartUploadManager] 分块 ${chunk.partNumber} 上传失败，$retryCount/$maxRetryCount 次重试');
+        // 等待后重试
+        await Future.delayed(Duration(milliseconds: retryDelayMs));
+      }
+    }
+
+    logError('[AliyunMultipartUploadManager] 分块 ${chunk.partNumber} 重试 $maxRetryCount 次后仍然失败');
+    return false;
   }
 
   /// 获取已上传的分块列表（用于断点续传）
