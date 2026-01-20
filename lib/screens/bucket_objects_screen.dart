@@ -1634,6 +1634,8 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     int currentIndex = 0;
     String currentFile = '';
     double currentProgress = 0.0;
+    int sentBytes = 0;
+    int totalBytes = 0;
     void Function(VoidCallback fn)? dialogSetState;
     bool isDialogOpen = true;
 
@@ -1657,7 +1659,7 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
                     child: LinearProgressIndicator(value: currentProgress),
                   ),
                   const SizedBox(height: 8),
-                  Text('${(currentProgress * 100).toInt()}%'),
+                  Text('${(currentProgress * 100).toInt()}% (${FileSizeFormatter.format(sentBytes)} / ${FileSizeFormatter.format(totalBytes)})'),
                   const SizedBox(height: 8),
                   Text('$currentIndex/${files.length}'),
                 ],
@@ -1691,6 +1693,8 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       );
 
       if (fileSize > largeFileThreshold) {
+        totalBytes = fileSize;
+        sentBytes = 0;
         final result = await api.uploadObjectMultipart(
           bucketName: widget.bucket.name,
           region: widget.bucket.region,
@@ -1701,7 +1705,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           onProgress: (sent, total) {
             if (mounted && isDialogOpen) {
               dialogSetState?.call(() {
-                currentProgress = total > 0 ? sent / total : 0.0;
+                sentBytes = sent;
+                totalBytes = total > 0 ? total : fileSize;
+                currentProgress = totalBytes > 0 ? sentBytes / totalBytes : 0.0;
               });
             }
           },
@@ -1713,6 +1719,8 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           failCount++;
         }
       } else {
+        totalBytes = fileSize;
+        sentBytes = 0;
         final fileBytes = await _readFileBytes(pickedFile);
         if (fileBytes == null) {
           failCount++;
@@ -1727,7 +1735,9 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
           onProgress: (sent, total) {
             if (mounted && isDialogOpen) {
               dialogSetState?.call(() {
-                currentProgress = total > 0 ? sent / total : 0.0;
+                sentBytes = sent;
+                totalBytes = total > 0 ? total : fileSize;
+                currentProgress = totalBytes > 0 ? sentBytes / totalBytes : 0.0;
               });
             }
           },
