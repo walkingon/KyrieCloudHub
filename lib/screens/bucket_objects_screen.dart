@@ -133,16 +133,21 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
     // 扫描目录获取所有已下载的文件
     final fileKeys = <String>{};
     if (await bucketDirectory.exists()) {
-      await for (final entity in bucketDirectory.list(recursive: true)) {
-        if (entity is File) {
-          // 获取相对路径作为 objectKey
-          final relativePath = entity.path.substring(bucketDir.length);
-          // 移除开头的分隔符，并转换路径分隔符
-          final objectKey = relativePath
-              .replaceFirst(RegExp(r'^[/\\]+'), '')
-              .replaceAll(r'\', '/');
-          fileKeys.add(objectKey);
+      try {
+        await for (final entity in bucketDirectory.list(recursive: true)) {
+          if (entity is File) {
+            // 获取相对路径作为 objectKey
+            final relativePath = entity.path.substring(bucketDir.length);
+            // 移除开头的分隔符，并转换路径分隔符
+            final objectKey = relativePath
+                .replaceFirst(RegExp(r'^[/\\]+'), '')
+                .replaceAll(r'\', '/');
+            fileKeys.add(objectKey);
+          }
         }
+      } catch (e) {
+        // 在 macOS 等平台，目录可能存在但没有访问权限
+        logUi('无法访问本地下载目录: $bucketDir, 错误: $e');
       }
     }
 
@@ -1037,7 +1042,13 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       },
     );
 
-    saveFile.parent.createSync(recursive: true);
+    try {
+      saveFile.parent.createSync(recursive: true);
+    } catch (e) {
+      logError('创建下载目录失败: ${saveFile.parent.path}, $e');
+      _showErrorSnackBar('无法创建下载目录');
+      return;
+    }
     final fullPath = saveFile.path;
 
     final fileSize = obj.size;
@@ -1143,7 +1154,13 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
       objectKey: obj.key,
     );
     final saveFile = File(fullPath);
-    saveFile.parent.createSync(recursive: true);
+    try {
+      saveFile.parent.createSync(recursive: true);
+    } catch (e) {
+      logError('创建下载目录失败: ${saveFile.parent.path}, $e');
+      _showErrorSnackBar('无法创建下载目录');
+      return;
+    }
 
     // 检查文件是否已存在
     if (await saveFile.exists()) {
@@ -1401,7 +1418,13 @@ class _BucketObjectsScreenState extends State<BucketObjectsScreen> {
         final relativePath = obj.key.substring(folder.key.length);
         final savePath = '$directoryPath/${folder.name}/$relativePath';
         final saveFile = File(savePath);
-        saveFile.parent.createSync(recursive: true);
+        try {
+          saveFile.parent.createSync(recursive: true);
+        } catch (e) {
+          logError('创建目录失败: ${saveFile.parent.path}, $e');
+          failedCount++;
+          continue;
+        }
 
         updateProgress(
           downloadedCount + failedCount,

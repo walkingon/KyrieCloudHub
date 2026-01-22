@@ -148,7 +148,13 @@ class BatchOperations {
       final relativePath = obj.key.split('/').where((e) => e.isNotEmpty).join('/');
       final savePath = '$downloadDirectory/$relativePath';
       final saveFile = File(savePath);
-      saveFile.parent.createSync(recursive: true);
+      try {
+        saveFile.parent.createSync(recursive: true);
+      } catch (e) {
+        logError('创建目录失败: ${saveFile.parent.path}, $e');
+        onError('无法创建下载目录: ${saveFile.parent.path}');
+        return;
+      }
 
       // 检查文件是否已存在
       if (await saveFile.exists()) {
